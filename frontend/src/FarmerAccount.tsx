@@ -95,7 +95,15 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The request could not be completed.'
 }
 
-export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => void }) {
+interface FarmerAccountProps {
+  onBackToDemo: () => void
+  roleVerifiedByRoute?: boolean
+}
+
+export default function FarmerAccount({
+  onBackToDemo,
+  roleVerifiedByRoute = false,
+}: FarmerAccountProps) {
   const supabase = getSupabaseClient()
   const [session, setSession] = useState<Session | null>(null)
   const [isCheckingSession, setIsCheckingSession] = useState(() => supabase !== null)
@@ -178,12 +186,14 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
     let active = true
     void (async () => {
       try {
-        const linked = await linkFarmerAccount(session.access_token, displayName)
-        if (linked.role !== 'farmer') {
-          await supabase?.auth.signOut()
-          throw new Error(
-            'This account is not assigned the farmer role. Use its approved role workspace.',
-          )
+        if (!roleVerifiedByRoute) {
+          const linked = await linkFarmerAccount(session.access_token, displayName)
+          if (linked.role !== 'farmer') {
+            await supabase?.auth.signOut()
+            throw new Error(
+              'This account is not assigned the farmer role. Use its approved role workspace.',
+            )
+          }
         }
         const nextProfile = await getFarmerProfile(session.access_token)
         if (!active) return
@@ -198,25 +208,42 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
           setVerifiedReport(null)
           return
         }
-        const [nextReadings, nextRecommendations, nextSync, nextReport] = await Promise.all([
-          getFarmerReadings(session.access_token, nextFarmId),
-          getFarmerRecommendations(session.access_token, nextFarmId),
-          getFarmerSyncStatus(session.access_token).catch(() => null),
-          getFarmVerifiedReport(session.access_token, nextFarmId),
-        ])
+        const [readingsResult, recommendationsResult, nextSyncResult, reportResult] =
+          await Promise.allSettled([
+            getFarmerReadings(session.access_token, nextFarmId),
+            getFarmerRecommendations(session.access_token, nextFarmId),
+            getFarmerSyncStatus(session.access_token).catch(() => null),
+            getFarmVerifiedReport(session.access_token, nextFarmId),
+          ] as const)
         if (!active) return
-        setReadings(nextReadings)
-        setRecommendations(nextRecommendations)
-        setSyncStatus(nextSync)
-        setVerifiedReport(nextReport)
+        const loadErrors: string[] = []
+        if (readingsResult.status === 'fulfilled') {
+          setReadings(readingsResult.value)
+        } else {
+          loadErrors.push(`Soil readings: ${getErrorMessage(readingsResult.reason)}`)
+        }
+        if (recommendationsResult.status === 'fulfilled') {
+          setRecommendations(recommendationsResult.value)
+        } else {
+          loadErrors.push(`Recommendations: ${getErrorMessage(recommendationsResult.reason)}`)
+        }
+        setSyncStatus(nextSyncResult.status === 'fulfilled' ? nextSyncResult.value : null)
+        if (reportResult.status === 'fulfilled') {
+          setVerifiedReport(reportResult.value)
+        } else {
+          loadErrors.push(`Verified report: ${getErrorMessage(reportResult.reason)}`)
+        }
+        setError(loadErrors.join(' '))
         const feedback = await Promise.all(
-          nextRecommendations.map(async (recommendation) => {
-            const events = await getRecommendationFeedback(
-              session.access_token,
-              recommendation.recommendationId,
-            )
-            return [recommendation.recommendationId, events.at(-1)?.response] as const
-          }),
+          (recommendationsResult.status === 'fulfilled' ? recommendationsResult.value : []).map(
+            async (recommendation) => {
+              const events = await getRecommendationFeedback(
+                session.access_token,
+                recommendation.recommendationId,
+              )
+              return [recommendation.recommendationId, events.at(-1)?.response] as const
+            },
+          ),
         )
         if (active) {
           setFeedbackByRecommendation(
@@ -237,7 +264,7 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
     return () => {
       active = false
     }
-  }, [session, supabase, displayName])
+  }, [session, supabase, displayName, roleVerifiedByRoute])
 
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -346,7 +373,9 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
       setFarmSize('')
       setFarmCrops('')
       setShowAddFarm(false)
-      setMessage('Farm registered. In-person extension officer visit needed for baseline soil measurements and GPS calibration.')
+      setMessage(
+        'Farm registered. In-person extension officer visit needed for baseline soil measurements and GPS calibration.',
+      )
     } catch (farmError) {
       setError(getErrorMessage(farmError))
     } finally {
@@ -364,9 +393,7 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
         selectedFarmId,
         visitNotes || undefined,
       )
-      setMessage(
-        res.message || 'Field visit request submitted to county extension officer pool.',
-      )
+      setMessage(res.message || 'Field visit request submitted to county extension officer pool.')
       setShowVisitModal(false)
       setVisitNotes('')
       const nextProfile = await getFarmerProfile(session.access_token)
@@ -475,7 +502,12 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
             <h1>Sign in to your farm</h1>
             <p>Sign in with your email and password to access your private farm records.</p>
           </div>
-          <button className="secondary-button" type="button" onClick={onBackToDemo} aria-label="Back to role directory">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onBackToDemo}
+            aria-label="Back to role directory"
+          >
             <ArrowLeft size={16} /> Back to sign in
           </button>
         </div>
@@ -661,34 +693,46 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
                     </span>
                     <span
                       className={`account-review-state ${
-                        selectedFarm.soilDataCollected || (selectedFarm.latitude !== null && readings.length > 0)
+                        selectedFarm.soilDataCollected ||
+                        (selectedFarm.latitude !== null && readings.length > 0)
                           ? 'is-approved'
                           : selectedFarm.hasVisitRequest
-                          ? 'is-pending'
-                          : 'is-incomplete'
+                            ? 'is-pending'
+                            : 'is-incomplete'
                       }`}
                     >
                       <span className="status-dot" />
-                      {selectedFarm.soilDataCollected || (selectedFarm.latitude !== null && readings.length > 0)
+                      {selectedFarm.soilDataCollected ||
+                      (selectedFarm.latitude !== null && readings.length > 0)
                         ? 'COLLECTION COMPLETE'
                         : selectedFarm.hasVisitRequest
-                        ? `VISIT ${selectedFarm.visitStatus?.toUpperCase() || 'REQUESTED'}`
-                        : 'INCOMPLETE — VISIT NEEDED'}
+                          ? `VISIT ${selectedFarm.visitStatus?.toUpperCase() || 'REQUESTED'}`
+                          : 'INCOMPLETE — VISIT NEEDED'}
                     </span>
                   </div>
                 </div>
 
                 {selectedFarm.soilDataCollected ? (
-                  <div className="account-visit-banner" role="region" aria-label="Field collection completed">
+                  <div
+                    className="account-visit-banner"
+                    role="region"
+                    aria-label="Field collection completed"
+                  >
                     <div className="visit-banner-header">
                       <div className="visit-banner-title">
                         <CheckCircle2 size={18} style={{ color: 'var(--success, #2e7d32)' }} />
                         <div>
                           <strong>Field Data Collected — Assessment Under Agronomic Review</strong>
                           <p>
-                            Soil properties and GPS coordinates were recorded on-site by Extension Officer{' '}
-                            {selectedFarm.coordinatesCapturedBy ? <strong>{selectedFarm.coordinatesCapturedBy}</strong> : 'assigned to your county'}.
-                            Your personalized soil report is currently under review by an agronomist and will appear below once verified.
+                            Soil properties and GPS coordinates were recorded on-site by Extension
+                            Officer{' '}
+                            {selectedFarm.coordinatesCapturedBy ? (
+                              <strong>{selectedFarm.coordinatesCapturedBy}</strong>
+                            ) : (
+                              'assigned to your county'
+                            )}
+                            . Your personalized soil report is currently under review by an
+                            agronomist and will appear below once verified.
                           </p>
                         </div>
                       </div>
@@ -700,9 +744,14 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
                       <div className="visit-banner-title">
                         <Clock size={18} style={{ color: 'var(--primary, #1b5e20)' }} />
                         <div>
-                          <strong>Field Visit Active ({selectedFarm.visitStatus?.toUpperCase() || 'REQUESTED'})</strong>
+                          <strong>
+                            Field Visit Active (
+                            {selectedFarm.visitStatus?.toUpperCase() || 'REQUESTED'})
+                          </strong>
                           <p>
-                            Your request is active in the county extension officer pool. An extension officer will claim and conduct on-site soil sampling and GPS coordinate capture.
+                            Your request is active in the county extension officer pool. An
+                            extension officer will claim and conduct on-site soil sampling and GPS
+                            coordinate capture.
                           </p>
                         </div>
                       </div>
@@ -720,15 +769,19 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
                     </div>
                   </div>
                 ) : (
-                  <div className="account-visit-banner" role="region" aria-label="Visit required notice">
+                  <div
+                    className="account-visit-banner"
+                    role="region"
+                    aria-label="Visit required notice"
+                  >
                     <div className="visit-banner-header">
                       <div className="visit-banner-title">
                         <AlertCircle size={18} className="visit-alert-icon" />
                         <div>
                           <strong>Field Visit Required (Incomplete Farm State)</strong>
                           <p>
-                            Baseline soil readings and GPS coordinates have not yet been recorded
-                            by an extension officer. Personalized recommendations will activate once
+                            Baseline soil readings and GPS coordinates have not yet been recorded by
+                            an extension officer. Personalized recommendations will activate once
                             verified measurements are completed.
                           </p>
                         </div>
@@ -890,7 +943,12 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
             )}
 
             {showVisitModal && selectedFarm && (
-              <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+              <div
+                className="modal-backdrop"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="modal-title"
+              >
                 <div className="modal-content">
                   <div className="modal-header">
                     <div>
@@ -1036,8 +1094,9 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
                 <div className="account-readings-officer-notice">
                   <ShieldCheck size={16} />
                   <span>
-                    Soil measurements are collected on-site and verified by certified agricultural extension officers.
-                    Once an officer completes a field visit, test results and calibrated recommendations are automatically synced to this view.
+                    Soil measurements are collected on-site and verified by certified agricultural
+                    extension officers. Once an officer completes a field visit, test results and
+                    calibrated recommendations are automatically synced to this view.
                   </span>
                 </div>
               </section>
@@ -1177,6 +1236,21 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
                         Target Crop: <strong>{verifiedReport.crop}</strong> • Region:{' '}
                         <strong>{verifiedReport.county}</strong> • Certified:{' '}
                         {formatDate(verifiedReport.publishedAt)}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: '0.8rem',
+                          color: 'var(--text-secondary)',
+                          marginTop: '0.35rem',
+                        }}
+                      >
+                        Location:{' '}
+                        {[verifiedReport.subCounty, verifiedReport.ward]
+                          .filter(Boolean)
+                          .join(' · ') || 'County-level details only'}{' '}
+                        · Collected: {formatDate(verifiedReport.sampledAt)} · Extension officer:{' '}
+                        {verifiedReport.officerName || 'Not recorded'} · Assessment:{' '}
+                        {formatDate(verifiedReport.assessedAt)}
                       </div>
                     </div>
                     <span
@@ -1337,56 +1411,65 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
                   </div>
 
                   {/* Commercial Agrodealer Formulation Matches */}
-                  {verifiedReport.commercialInputs && verifiedReport.commercialInputs.length > 0 && (
-                    <div style={{ marginBottom: '1.5rem' }}>
-                      <h3 style={{ fontSize: '1.05rem', marginBottom: '0.75rem' }}>
-                        3. Commercial Fertilizer &amp; Amendment Formulations
-                      </h3>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table
-                          style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}
-                        >
-                          <thead>
-                            <tr
-                              style={{
-                                borderBottom: '2px solid var(--border-color)',
-                                textAlign: 'left',
-                              }}
-                            >
-                              <th style={{ padding: '0.5rem' }}>Category</th>
-                              <th style={{ padding: '0.5rem' }}>Commercial Input</th>
-                              <th style={{ padding: '0.5rem' }}>Purpose</th>
-                              <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total Needed</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {verifiedReport.commercialInputs.map((c, idx) => (
+                  {verifiedReport.commercialInputs &&
+                    verifiedReport.commercialInputs.length > 0 && (
+                      <div style={{ marginBottom: '1.5rem' }}>
+                        <h3 style={{ fontSize: '1.05rem', marginBottom: '0.75rem' }}>
+                          3. Commercial Fertilizer &amp; Amendment Formulations
+                        </h3>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table
+                            style={{
+                              width: '100%',
+                              borderCollapse: 'collapse',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            <thead>
                               <tr
-                                key={idx}
-                                style={{ borderBottom: '1px solid var(--border-color)' }}
+                                style={{
+                                  borderBottom: '2px solid var(--border-color)',
+                                  textAlign: 'left',
+                                }}
                               >
-                                <td style={{ padding: '0.5rem', fontWeight: 600 }}>{c.category}</td>
-                                <td style={{ padding: '0.5rem' }}>{c.commercialFormulation}</td>
-                                <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
-                                  {c.purpose}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: '0.5rem',
-                                    textAlign: 'right',
-                                    fontWeight: 700,
-                                    color: '#047857',
-                                  }}
-                                >
-                                  {c.totalBagsNeeded} x {c.bagUnit}
-                                </td>
+                                <th style={{ padding: '0.5rem' }}>Category</th>
+                                <th style={{ padding: '0.5rem' }}>Commercial Input</th>
+                                <th style={{ padding: '0.5rem' }}>Purpose</th>
+                                <th style={{ padding: '0.5rem', textAlign: 'right' }}>
+                                  Total Needed
+                                </th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {verifiedReport.commercialInputs.map((c, idx) => (
+                                <tr
+                                  key={idx}
+                                  style={{ borderBottom: '1px solid var(--border-color)' }}
+                                >
+                                  <td style={{ padding: '0.5rem', fontWeight: 600 }}>
+                                    {c.category}
+                                  </td>
+                                  <td style={{ padding: '0.5rem' }}>{c.commercialFormulation}</td>
+                                  <td style={{ padding: '0.5rem', color: 'var(--text-secondary)' }}>
+                                    {c.purpose}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: '0.5rem',
+                                      textAlign: 'right',
+                                      fontWeight: 700,
+                                      color: '#047857',
+                                    }}
+                                  >
+                                    {c.totalBagsNeeded} x {c.bagUnit}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
                   {/* Split Application Timeline */}
                   {verifiedReport.splitSchedule && verifiedReport.splitSchedule.length > 0 && (

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { linkAuthenticatedAccount } from './api/auth'
 import { getSupabaseClient } from './lib/supabase'
+import { SoilSyncLoading } from './SoilSyncLoading'
 import {
   approveAdminUser,
   cancelInvitation,
@@ -63,7 +64,60 @@ import {
 } from './api/admin'
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'The admin request could not be completed.'
+  if (!(error instanceof Error)) {
+    return 'The admin request could not be completed.'
+  }
+
+  const missingPermission = error.message.match(/^([a-z_]+) permission is required\.?$/i)
+  if (missingPermission) {
+    return `This admin account is missing the ${missingPermission[1]} permission. Ask an authorized system owner to grant the appropriate access.`
+  }
+
+  return error.message
+}
+
+function isLocalSupabaseConfigured(): boolean {
+  return /^https?:\/\/(?:localhost|127(?:\.\d{1,3}){3})(?::\d+)?(?:\/|$)/i.test(
+    import.meta.env.VITE_SUPABASE_URL ?? '',
+  )
+}
+
+function getInvitationAcceptedMessage(email: string, activation: string): string {
+  return `Invitation request accepted for ${email}. This confirms the auth service accepted it, not that it reached the inbox. ${activation}`
+}
+
+const SETTING_LABELS: Record<string, string> = {
+  'general.maintenance_mode': 'Maintenance mode',
+  'notifications.sms_gateway_enabled': 'SMS alerts',
+  'recommendations.strict_confidence_threshold': 'Recommendation confidence threshold',
+  'security.session_idle_timeout_minutes': 'Session idle timeout',
+  'security.support_access_max_duration_minutes': 'Maximum support-access duration',
+  'sync.max_batch_size': 'Sync batch size',
+  'sync.retry_interval_seconds': 'Sync retry delay',
+}
+
+const SETTING_EXPLANATIONS: Record<string, string> = {
+  'general.maintenance_mode':
+    'Intended to pause non-admin changes during maintenance. This stored value is not currently connected to request enforcement.',
+  'notifications.sms_gateway_enabled':
+    'Intended to enable SMS alerts for urgent weather or pest events. SMS delivery is not currently connected to this stored value.',
+  'recommendations.strict_confidence_threshold':
+    'Intended to set the minimum confidence for automated fertilizer suggestions. The recommendation engine does not currently read this stored value.',
+  'security.session_idle_timeout_minutes':
+    'Intended to set how long a session can remain idle. Session enforcement does not currently read this stored value.',
+  'security.support_access_max_duration_minutes':
+    'Intended to cap time-limited support access. Support-access enforcement does not currently read this stored value.',
+  'sync.max_batch_size':
+    'Intended to limit soil-reading drafts per sync batch. Sync processing does not currently read this stored value.',
+  'sync.retry_interval_seconds':
+    'Intended to set the delay before retrying failed syncs. Sync processing does not currently read this stored value.',
+}
+
+function formatSettingValue(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'On' : 'Off'
+  if (value === null || value === undefined) return 'Not set'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
 }
 
 // 15-Minute Inactivity Timeout for Admin Sessions
@@ -73,7 +127,15 @@ import { KENYA_COUNTIES } from './data/kenyaLocations'
 
 type SupportGrantTarget = 'farm' | 'reading' | 'farmer_profile' | 'agrodealer_order'
 
-export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => void }) {
+interface AdminAccountProps {
+  onBackToDemo: () => void
+  roleVerifiedByRoute?: boolean
+}
+
+export default function AdminAccount({
+  onBackToDemo,
+  roleVerifiedByRoute = false,
+}: AdminAccountProps) {
   const supabase = getSupabaseClient()
   const [session, setSession] = useState<Session | null>(null)
   const [sessionRoleVerified, setSessionRoleVerified] = useState(false)
@@ -85,6 +147,7 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
   const [isLoadingData, setIsLoadingData] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [showLocalEmailCaptureLink, setShowLocalEmailCaptureLink] = useState(false)
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<
@@ -174,7 +237,8 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
   const [reauthError, setReauthError] = useState('')
   const [isReauthenticating, setIsReauthenticating] = useState(false)
 
-  const effectiveToken = (sessionRoleVerified ? session?.access_token : null) || activeToken
+  const effectiveToken =
+    (sessionRoleVerified || roleVerifiedByRoute ? session?.access_token : null) || activeToken
 
   useEffect(() => {
     if (!effectiveToken) return
@@ -278,7 +342,7 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
   }, [supabase])
 
   useEffect(() => {
-    if (!supabase || !session) return
+    if (!supabase || !session || roleVerifiedByRoute) return
     let active = true
 
     void linkAuthenticatedAccount(session.access_token)
@@ -314,7 +378,7 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
     return () => {
       active = false
     }
-  }, [session, supabase])
+  }, [session, supabase, roleVerifiedByRoute])
 
   // Refresh active tab data
   const refreshData = useCallback(async () => {
@@ -516,6 +580,8 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
     if (!effectiveToken) return
     setIsInviting(true)
     setError('')
+    setMessage('')
+    setShowLocalEmailCaptureLink(false)
     try {
       await inviteOfficer(
         {
@@ -528,7 +594,13 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
         },
         effectiveToken,
       )
-      setMessage(`Invitation sent to ${inviteEmail}. Their officer role activates after password setup.`)
+      setMessage(
+        getInvitationAcceptedMessage(
+          inviteEmail,
+          'The officer role activates after password setup.',
+        ),
+      )
+      setShowLocalEmailCaptureLink(isLocalSupabaseConfigured())
       setShowInviteOfficerModal(false)
       setInviteEmail('')
       setInviteDisplayName('')
@@ -548,6 +620,8 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
     if (!effectiveToken) return
     setIsInviting(true)
     setError('')
+    setMessage('')
+    setShowLocalEmailCaptureLink(false)
     try {
       await inviteAgrodealer(
         {
@@ -561,8 +635,12 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
         effectiveToken,
       )
       setMessage(
-        `Invitation sent to ${inviteDealerEmail}. Their dealer role activates after password setup.`,
+        getInvitationAcceptedMessage(
+          inviteDealerEmail,
+          'The dealer role activates after password setup.',
+        ),
       )
+      setShowLocalEmailCaptureLink(isLocalSupabaseConfigured())
       setShowInviteAgrodealerModal(false)
       setInviteDealerEmail('')
       setInviteDealerName('')
@@ -584,6 +662,8 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
     if (!effectiveToken) return
     setIsInviting(true)
     setError('')
+    setMessage('')
+    setShowLocalEmailCaptureLink(false)
     try {
       await inviteAgronomist(
         {
@@ -596,8 +676,12 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
         effectiveToken,
       )
       setMessage(
-        `Invitation sent to ${inviteAgronomistEmail}. Status: ${inviteAgronomistStatus}. Setup link generated.`,
+        getInvitationAcceptedMessage(
+          inviteAgronomistEmail,
+          `Approval status: ${inviteAgronomistStatus}.`,
+        ),
       )
+      setShowLocalEmailCaptureLink(isLocalSupabaseConfigured())
       setShowInviteAgronomistModal(false)
       setInviteAgronomistEmail('')
       setInviteAgronomistName('')
@@ -902,7 +986,17 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
       {message && (
         <div className="admin-alert success" role="status">
           <CheckCircle size={18} />
-          <span>{message}</span>
+          <div>
+            <span>{message}</span>
+            {showLocalEmailCaptureLink && (
+              <p className="admin-email-capture-note">
+                Local test email is captured, not delivered externally.{' '}
+                <a href="http://127.0.0.1:54324/" target="_blank" rel="noreferrer">
+                  Open local email inbox
+                </a>
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -1020,9 +1114,7 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
                     </div>
                   </div>
                 ) : (
-                  <p className="loading-state">
-                    Loading platform overview…
-                  </p>
+                  <SoilSyncLoading label="Loading platform overview…" compact />
                 )}
 
                 {/* Role Breakdown Sub-panel */}
@@ -1285,7 +1377,12 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
 
                 {/* Approve User Modal */}
                 {selectedUserForApprove && (
-                  <div className="modal-backdrop" role="dialog" aria-modal="true">
+                  <div
+                    className="modal-backdrop"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="invite-officer-title"
+                  >
                     <div className="modal-card">
                       <h3>Approve Account: {selectedUserForApprove.email}</h3>
                       <p>
@@ -1332,7 +1429,12 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
 
                 {/* Revoke / Suspend User Modal */}
                 {selectedUserForRevoke && (
-                  <div className="modal-backdrop" role="dialog" aria-modal="true">
+                  <div
+                    className="modal-backdrop"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="invite-dealer-title"
+                  >
                     <div className="modal-card">
                       <h3>Suspend Account: {selectedUserForRevoke.email}</h3>
                       <p>
@@ -1389,13 +1491,18 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
 
                 {/* Invite Extension Officer Modal */}
                 {showInviteOfficerModal && (
-                  <div className="modal-backdrop" role="dialog" aria-modal="true">
-                    <div className="modal-card" style={{ maxWidth: '520px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <div
+                    className="modal-backdrop"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="invite-agronomist-title"
+                  >
+                    <div className="modal-card admin-invite-modal">
+                      <div className="admin-invite-modal-heading">
                         <UserPlus size={20} color="var(--primary, #2d6a4f)" />
-                        <h3 style={{ margin: 0 }}>Invite Extension Officer</h3>
+                        <h3 id="invite-officer-title">Invite Extension Officer</h3>
                       </div>
-                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                      <p className="admin-invite-modal-description">
                         Officers cannot self-register. Their profile and farmer access are scoped to the assigned
                         jurisdiction; the role activates after they set a password from the email invitation.
                       </p>
@@ -1503,12 +1610,12 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
 
                 {showInviteAgrodealerModal && (
                   <div className="modal-backdrop" role="dialog" aria-modal="true">
-                    <div className="modal-card" style={{ maxWidth: '520px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <div className="modal-card admin-invite-modal">
+                      <div className="admin-invite-modal-heading">
                         <Store size={20} color="var(--primary, #2d6a4f)" />
-                        <h3 style={{ margin: 0 }}>Invite Agrodealer</h3>
+                        <h3 id="invite-dealer-title">Invite Agrodealer</h3>
                       </div>
-                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                      <p className="admin-invite-modal-description">
                         The dealer receives a secure setup link, chooses a password, then manages their profile,
                         products, and stock in the dealer workspace.
                       </p>
@@ -1603,12 +1710,12 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
 
                 {showInviteAgronomistModal && (
                   <div className="modal-backdrop" role="dialog" aria-modal="true">
-                    <div className="modal-card" style={{ maxWidth: '520px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <div className="modal-card admin-invite-modal">
+                      <div className="admin-invite-modal-heading">
                         <Award size={20} color="var(--primary, #2d6a4f)" />
-                        <h3 style={{ margin: 0 }}>Invite Agronomist</h3>
+                        <h3 id="invite-agronomist-title">Invite Agronomist</h3>
                       </div>
-                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                      <p className="admin-invite-modal-description">
                         Provision a licensed agronomist. The agronomist receives a secure setup link.
                         Unapproved agronomists remain blocked from review actions until approved.
                       </p>
@@ -1835,7 +1942,7 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
                     </div>
                   </>
                 ) : (
-                  <p className="loading-state">Loading platform health details…</p>
+                  <SoilSyncLoading label="Loading platform health details…" compact />
                 )}
               </section>
             )}
@@ -2124,8 +2231,8 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
                     <div key={s.key} className="setting-card">
                       <div className="setting-header">
                         <div className="setting-title-wrap">
-                          <strong>{s.key}</strong>
-                          <span className="category-pill">{s.category}</span>
+                          <strong>{SETTING_LABELS[s.key] ?? s.key}</strong>
+                          <span className="category-pill">{s.category.replaceAll('_', ' ')}</span>
                         </div>
                         {s.isReadOnly ? (
                           <span className="status-pill suspended">Read-Only</span>
@@ -2146,10 +2253,14 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
                           </button>
                         )}
                       </div>
-                      <p className="setting-description">{s.description}</p>
+                      <p className="setting-description">
+                        {SETTING_EXPLANATIONS[s.key] ?? s.description}
+                      </p>
                       <div className="setting-value-display">
-                        <code>{JSON.stringify(s.value)}</code>
+                        <span>Stored value</span>
+                        <strong>{formatSettingValue(s.value)}</strong>
                       </div>
+                      <code className="setting-key">{s.key}</code>
                       <span className="setting-updated">
                         Updated {new Date(s.updatedAt).toLocaleDateString()}
                         {s.updatedByName && ` by ${s.updatedByName}`}

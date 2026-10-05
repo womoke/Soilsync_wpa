@@ -40,7 +40,15 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The request could not be completed.'
 }
 
-export default function AgrodealerAccount({ onBackToDemo }: { onBackToDemo: () => void }) {
+interface AgrodealerAccountProps {
+  onBackToDemo: () => void
+  roleVerifiedByRoute?: boolean
+}
+
+export default function AgrodealerAccount({
+  onBackToDemo,
+  roleVerifiedByRoute = false,
+}: AgrodealerAccountProps) {
   const supabase = getSupabaseClient()
   const [session, setSession] = useState<Session | null>(null)
   const [sessionRoleVerified, setSessionRoleVerified] = useState(false)
@@ -97,7 +105,8 @@ export default function AgrodealerAccount({ onBackToDemo }: { onBackToDemo: () =
   const [simCounty, setSimCounty] = useState('Nyeri')
   const [simWard, setSimWard] = useState('Dedan Kimathi')
 
-  const effectiveToken = (sessionRoleVerified ? session?.access_token : null) || activeToken
+  const effectiveToken =
+    (sessionRoleVerified || roleVerifiedByRoute ? session?.access_token : null) || activeToken
 
   useEffect(() => {
     let isMounted = true
@@ -124,7 +133,7 @@ export default function AgrodealerAccount({ onBackToDemo }: { onBackToDemo: () =
   }, [supabase])
 
   useEffect(() => {
-    if (!supabase || !session) return
+    if (!supabase || !session || roleVerifiedByRoute) return
     let active = true
 
     void linkAuthenticatedAccount(session.access_token)
@@ -160,7 +169,7 @@ export default function AgrodealerAccount({ onBackToDemo }: { onBackToDemo: () =
     return () => {
       active = false
     }
-  }, [session, supabase])
+  }, [session, supabase, roleVerifiedByRoute])
 
   const loadDealerData = useCallback(async (tokenToUse: string) => {
     if (!tokenToUse) return

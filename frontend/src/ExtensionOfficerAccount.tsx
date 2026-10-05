@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
   Activity,
@@ -58,7 +58,15 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The request could not be completed.'
 }
 
-export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo: () => void }) {
+interface ExtensionOfficerAccountProps {
+  onBackToDemo: () => void
+  roleVerifiedByRoute?: boolean
+}
+
+export default function ExtensionOfficerAccount({
+  onBackToDemo,
+  roleVerifiedByRoute = false,
+}: ExtensionOfficerAccountProps) {
   const supabase = getSupabaseClient()
   const [session, setSession] = useState<Session | null>(null)
   const [sessionRoleVerified, setSessionRoleVerified] = useState(false)
@@ -113,9 +121,12 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
 
   // Field Data Collection modal states
   const [collectionVisit, setCollectionVisit] = useState<OfficerVisitItem | null>(null)
-  const [collectionLat, setCollectionLat] = useState('-0.4215')
-  const [collectionLng, setCollectionLng] = useState('36.9512')
-  const [collectionUncertainty, setCollectionUncertainty] = useState('5.0')
+  const [collectionLat, setCollectionLat] = useState('')
+  const [collectionLng, setCollectionLng] = useState('')
+  const [collectionUncertainty, setCollectionUncertainty] = useState('')
+  const [gpsStatus, setGpsStatus] = useState<'idle' | 'locating' | 'captured' | 'error'>('idle')
+  const [gpsError, setGpsError] = useState('')
+  const [gpsCapturedAt, setGpsCapturedAt] = useState<string | null>(null)
   const [collectionPh, setCollectionPh] = useState('6.2')
   const [collectionOrganicCarbon, setCollectionOrganicCarbon] = useState('1.8')
   const [collectionNitrogen, setCollectionNitrogen] = useState('0.18')
@@ -129,11 +140,66 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
   const [isExporting, setIsExporting] = useState(false)
 
   // Agronomic Assessment modal & review states
-  const [selectedAssessment, setSelectedAssessment] = useState<UnverifiedAssessmentItem | null>(null)
+  const [selectedAssessment, setSelectedAssessment] = useState<UnverifiedAssessmentItem | null>(
+    null,
+  )
+  const assessmentDialogRef = useRef<HTMLDivElement>(null)
+  const assessmentTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [assessmentNotes, setAssessmentNotes] = useState('')
   const [isAssessmentActionWorking, setIsAssessmentActionWorking] = useState(false)
 
-  const token = (sessionRoleVerified ? session?.access_token : null) || activeToken
+  const token =
+    (sessionRoleVerified || roleVerifiedByRoute ? session?.access_token : null) || activeToken
+
+  useEffect(() => {
+    if (selectedAssessment) assessmentDialogRef.current?.focus()
+    else assessmentTriggerRef.current?.focus()
+  }, [selectedAssessment])
+
+  const captureCurrentLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGpsStatus('error')
+      setGpsError(
+        'Location is unavailable in this browser. Enter the coordinates and accuracy manually.',
+      )
+      return
+    }
+
+    setGpsStatus('locating')
+    setGpsError('')
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        if (
+          !Number.isFinite(coords.latitude) ||
+          !Number.isFinite(coords.longitude) ||
+          !Number.isFinite(coords.accuracy) ||
+          coords.accuracy < 0
+        ) {
+          setGpsStatus('error')
+          setGpsError(
+            'The device returned an invalid location fix. Retry or enter coordinates and accuracy manually.',
+          )
+          return
+        }
+        setCollectionLat(String(coords.latitude))
+        setCollectionLng(String(coords.longitude))
+        setCollectionUncertainty(String(coords.accuracy))
+        setGpsCapturedAt(new Date().toISOString())
+        setGpsStatus('captured')
+      },
+      (positionError) => {
+        const message =
+          positionError.code === positionError.PERMISSION_DENIED
+            ? 'Location permission was denied. Allow location access in your browser settings or enter coordinates and accuracy manually.'
+            : positionError.code === positionError.TIMEOUT
+              ? 'The GPS fix took too long. Move to an open area and try again, or enter coordinates and accuracy manually.'
+              : 'The device could not determine your location. Check location services or enter coordinates and accuracy manually.'
+        setGpsStatus('error')
+        setGpsError(message)
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
+    )
+  }, [])
 
   useEffect(() => {
     if (!supabase) return
@@ -153,7 +219,7 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
   }, [supabase])
 
   useEffect(() => {
-    if (!supabase || !session) return
+    if (!supabase || !session || roleVerifiedByRoute) return
     let active = true
 
     void linkAuthenticatedAccount(session.access_token)
@@ -189,7 +255,7 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
     return () => {
       active = false
     }
-  }, [session, supabase])
+  }, [session, supabase, roleVerifiedByRoute])
 
   const loadData = useCallback(async (accessToken: string) => {
     setIsLoadingData(true)
@@ -357,7 +423,9 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
     } catch (err) {
       setError(getErrorMessage(err))
       if (token) {
-        void getOfficerVisitPool(token).then(setVisitPool).catch(() => {})
+        void getOfficerVisitPool(token)
+          .then(setVisitPool)
+          .catch(() => {})
       }
     } finally {
       setIsWorking(false)
@@ -386,8 +454,20 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
     if (!token || !collectionVisit) return
     const lat = parseFloat(collectionLat)
     const lng = parseFloat(collectionLng)
-    if (isNaN(lat) || isNaN(lng)) {
-      setError('Please provide valid GPS coordinates.')
+    const accuracy = Number.parseFloat(collectionUncertainty)
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      setError('Enter valid latitude and longitude coordinates.')
+      return
+    }
+    if (!Number.isFinite(accuracy) || accuracy < 0) {
+      setError('Enter the GPS accuracy radius in meters, or capture a device location.')
       return
     }
 
@@ -396,17 +476,42 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
     setMessage('')
     try {
       const measurements = [
-        { analyte: 'soil_ph', value: parseFloat(collectionPh), sourceUnit: 'pH', qualityStatus: 'valid' },
-        { analyte: 'organic_carbon', value: parseFloat(collectionOrganicCarbon), sourceUnit: '%', qualityStatus: 'valid' },
-        { analyte: 'total_nitrogen', value: parseFloat(collectionNitrogen), sourceUnit: '%', qualityStatus: 'valid' },
-        { analyte: 'olsen_phosphorus', value: parseFloat(collectionPhosphorus), sourceUnit: 'mg/kg', qualityStatus: 'valid' },
-        { analyte: 'exchangeable_potassium', value: parseFloat(collectionPotassium), sourceUnit: 'cmol/kg', qualityStatus: 'valid' },
+        {
+          analyte: 'soil_ph',
+          value: parseFloat(collectionPh),
+          sourceUnit: 'pH',
+          qualityStatus: 'valid',
+        },
+        {
+          analyte: 'organic_carbon',
+          value: parseFloat(collectionOrganicCarbon),
+          sourceUnit: '%',
+          qualityStatus: 'valid',
+        },
+        {
+          analyte: 'total_nitrogen',
+          value: parseFloat(collectionNitrogen),
+          sourceUnit: '%',
+          qualityStatus: 'valid',
+        },
+        {
+          analyte: 'olsen_phosphorus',
+          value: parseFloat(collectionPhosphorus),
+          sourceUnit: 'mg/kg',
+          qualityStatus: 'valid',
+        },
+        {
+          analyte: 'exchangeable_potassium',
+          value: parseFloat(collectionPotassium),
+          sourceUnit: 'cmol/kg',
+          qualityStatus: 'valid',
+        },
       ].filter((m) => !isNaN(m.value))
 
       const res = await recordOfficerFieldCollection(token, collectionVisit.visitId, {
         latitude: lat,
         longitude: lng,
-        locationUncertaintyM: parseFloat(collectionUncertainty) || 5.0,
+        locationUncertaintyM: accuracy,
         topCm: parseFloat(collectionTopCm) || 0,
         bottomCm: parseFloat(collectionBottomCm) || 20,
         measurements,
@@ -421,7 +526,9 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
       )
       setCollectionVisit(null)
       if (token) {
-        void getUnverifiedAssessments(token).then(setAssessments).catch(() => {})
+        void getUnverifiedAssessments(token)
+          .then(setAssessments)
+          .catch(() => {})
       }
       setMessage(res.message || 'Field data and GPS coordinates recorded successfully.')
     } catch (err) {
@@ -493,7 +600,11 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
     setError('')
     setMessage('')
     try {
-      const res = await editAssessment(token, selectedAssessment.assessmentId, assessmentNotes.trim())
+      const res = await editAssessment(
+        token,
+        selectedAssessment.assessmentId,
+        assessmentNotes.trim(),
+      )
       setAssessments((prev) =>
         prev.map((a) =>
           a.assessmentId === selectedAssessment.assessmentId
@@ -903,7 +1014,13 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
       <article className="history-panel role-panel-block" style={{ marginBottom: '1.5rem' }}>
         <div
           className="section-heading"
-          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+          }}
         >
           <div>
             <div className="eyebrow">JURISDICTION ROSTER</div>
@@ -914,17 +1031,34 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
               className="secondary-button"
               type="button"
               onClick={() => setShowRegisterFarmerModal(true)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                fontSize: '0.85rem',
+              }}
             >
               <UserPlus size={16} /> Register Farmer On-Site
             </button>
-            <button className="primary-button" type="button" onClick={() => setIsScheduleOpen(true)}>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => setIsScheduleOpen(true)}
+            >
               <Plus size={16} /> Schedule Visit
             </button>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: '0.5rem',
+            marginTop: '0.8rem',
+            borderBottom: '1px solid var(--border-color)',
+            paddingBottom: '0.5rem',
+          }}
+        >
           <button
             type="button"
             className={`tab-btn ${rosterTab === 'active' ? 'active' : ''}`}
@@ -963,7 +1097,9 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
 
         {rosterTab === 'active' ? (
           roster.length === 0 ? (
-            <p className="history-empty" style={{ marginTop: '1rem' }}>No farmers found in your assigned jurisdictions.</p>
+            <p className="history-empty" style={{ marginTop: '1rem' }}>
+              No farmers found in your assigned jurisdictions.
+            </p>
           ) : (
             <div className="roster-list" style={{ marginTop: '1rem' }}>
               {roster.map((farmer) => (
@@ -1016,86 +1152,98 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
               ))}
             </div>
           )
+        ) : unclaimedRoster.length === 0 ? (
+          <p className="history-empty" style={{ marginTop: '1rem' }}>
+            No on-site registered farmers pending account claims.
+          </p>
         ) : (
-          unclaimedRoster.length === 0 ? (
-            <p className="history-empty" style={{ marginTop: '1rem' }}>
-              No on-site registered farmers pending account claims.
-            </p>
-          ) : (
-            <div className="roster-list" style={{ marginTop: '1rem' }}>
-              {unclaimedRoster.map((item) => {
-                const daysRemaining = item.daysUntilExpiration ?? 7
-                return (
-                  <div
-                    key={item.authUserId}
-                    className="roster-item"
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '0.85rem 1rem',
-                      borderBottom: '1px solid var(--border-color)',
-                    }}
-                  >
-                    <div>
-                      <strong style={{ fontSize: '1rem', display: 'block' }}>
-                        {item.fullName || 'Unnamed Farmer'}
-                      </strong>
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        {item.email}
-                      </span>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                        Farm: <strong>{item.initialFarmName || 'Unnamed Farm'}</strong> • {item.county || 'Unassigned'}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                      <span
-                        className="draft-status-pill"
-                        style={{
-                          fontSize: '0.78rem',
-                          backgroundColor: '#e0f2fe',
-                          color: '#0369a1',
-                          fontWeight: 600,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.25rem',
-                        }}
-                        title="Daily in-app & email reminders on Days 1-6"
-                      >
-                        <Mail size={12} /> {item.reminderCount} / 6 Reminders
-                      </span>
-                      <span
-                        className="draft-status-pill"
-                        style={{
-                          fontSize: '0.78rem',
-                          backgroundColor: daysRemaining <= 2 ? '#fee2e2' : '#fef3c7',
-                          color: daysRemaining <= 2 ? '#b91c1c' : '#b45309',
-                          fontWeight: 600,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.25rem',
-                        }}
-                        title="Automated cascade deletion of account and farm occurs on Day 7 if unclaimed"
-                      >
-                        <Clock size={12} /> Day 7 Deletion: {daysRemaining}d left
-                      </span>
-                      <span
-                        className="draft-status-pill"
-                        style={{
-                          fontSize: '0.78rem',
-                          backgroundColor: item.status === 'active' ? '#dcfce7' : '#f3f4f6',
-                          color: item.status === 'active' ? '#15803d' : '#4b5563',
-                          fontWeight: 600,
-                        }}
-                      >
-                        {item.status === 'active' ? 'Claimed & Active' : 'Unclaimed'}
-                      </span>
+          <div className="roster-list" style={{ marginTop: '1rem' }}>
+            {unclaimedRoster.map((item) => {
+              const daysRemaining = item.daysUntilExpiration ?? 7
+              return (
+                <div
+                  key={item.authUserId}
+                  className="roster-item"
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '0.85rem 1rem',
+                    borderBottom: '1px solid var(--border-color)',
+                  }}
+                >
+                  <div>
+                    <strong style={{ fontSize: '1rem', display: 'block' }}>
+                      {item.fullName || 'Unnamed Farmer'}
+                    </strong>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      {item.email}
+                    </span>
+                    <div
+                      style={{
+                        fontSize: '0.8rem',
+                        color: 'var(--text-secondary)',
+                        marginTop: '0.2rem',
+                      }}
+                    >
+                      Farm: <strong>{item.initialFarmName || 'Unnamed Farm'}</strong> •{' '}
+                      {item.county || 'Unassigned'}
                     </div>
                   </div>
-                )
-              })}
-            </div>
-          )
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span
+                      className="draft-status-pill"
+                      style={{
+                        fontSize: '0.78rem',
+                        backgroundColor: '#e0f2fe',
+                        color: '#0369a1',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                      }}
+                      title="Daily in-app & email reminders on Days 1-6"
+                    >
+                      <Mail size={12} /> {item.reminderCount} / 6 Reminders
+                    </span>
+                    <span
+                      className="draft-status-pill"
+                      style={{
+                        fontSize: '0.78rem',
+                        backgroundColor: daysRemaining <= 2 ? '#fee2e2' : '#fef3c7',
+                        color: daysRemaining <= 2 ? '#b91c1c' : '#b45309',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                      }}
+                      title="Automated cascade deletion of account and farm occurs on Day 7 if unclaimed"
+                    >
+                      <Clock size={12} /> Day 7 Deletion: {daysRemaining}d left
+                    </span>
+                    <span
+                      className="draft-status-pill"
+                      style={{
+                        fontSize: '0.78rem',
+                        backgroundColor: item.status === 'active' ? '#dcfce7' : '#f3f4f6',
+                        color: item.status === 'active' ? '#15803d' : '#4b5563',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {item.status === 'active' ? 'Claimed & Active' : 'Unclaimed'}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </article>
 
@@ -1126,8 +1274,15 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
             <RefreshCw size={14} /> Refresh Pool
           </button>
         </div>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.25rem 0 1rem 0' }}>
-          Open visit requests submitted by farmers within your assigned county/sub-county/ward. Claim a request to take ownership and schedule on-site soil sampling.
+        <p
+          style={{
+            fontSize: '0.85rem',
+            color: 'var(--text-secondary)',
+            margin: '0.25rem 0 1rem 0',
+          }}
+        >
+          Open visit requests submitted by farmers within your assigned county/sub-county/ward.
+          Claim a request to take ownership and schedule on-site soil sampling.
         </p>
         {visitPool.length === 0 ? (
           <p className="history-empty">
@@ -1175,7 +1330,8 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                   </div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     <span>
-                      {[req.ward, req.subCounty, req.county].filter(Boolean).join(', ') || 'Jurisdiction Match'}
+                      {[req.ward, req.subCounty, req.county].filter(Boolean).join(', ') ||
+                        'Jurisdiction Match'}
                     </span>
                     {req.farmerPhone && (
                       <span style={{ marginLeft: '0.5rem' }}>• Tel: {req.farmerPhone}</span>
@@ -1347,7 +1503,11 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                         setCollectionVisit(visit)
                         setCollectionLat('')
                         setCollectionLng('')
-                        setCollectionUncertainty('5.0')
+                        setCollectionUncertainty('')
+                        setGpsStatus('idle')
+                        setGpsError('')
+                        setGpsCapturedAt(null)
+                        captureCurrentLocation()
                         setCollectionPh('')
                         setCollectionOrganicCarbon('')
                         setCollectionNitrogen('')
@@ -1376,7 +1536,11 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                       className="secondary-button"
                       type="button"
                       title="Release back to unassigned county pool for another officer"
-                      style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem', color: 'var(--warning, #e65100)' }}
+                      style={{
+                        fontSize: '0.8rem',
+                        padding: '0.3rem 0.65rem',
+                        color: 'var(--warning, #e65100)',
+                      }}
                       onClick={() => handleReleaseVisit(visit.visitId)}
                     >
                       <Undo2 size={14} /> Release to Pool
@@ -1615,14 +1779,16 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
             <div className="eyebrow">KALRO AGRONOMIC ENGINE & COLLABORATION</div>
             <h2>Agronomic Assessments Pipeline ({assessments.length})</h2>
             <p className="page-subtitle" style={{ margin: '0.25rem 0 0 0', fontSize: '0.875rem' }}>
-              Deterministic nutrient response models awaiting collaborative extension notes and agronomist verification.
+              Deterministic nutrient response models awaiting collaborative extension notes and
+              agronomist verification.
             </p>
           </div>
         </div>
 
         {assessments.length === 0 ? (
           <p className="history-empty">
-            No unverified assessments in your assigned jurisdiction. Field collections will automatically generate KALRO assessments.
+            No unverified assessments in your assigned jurisdiction. Field collections will
+            automatically generate KALRO assessments.
           </p>
         ) : (
           <div
@@ -1654,7 +1820,9 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                       flexWrap: 'wrap',
                     }}
                   >
-                    <strong style={{ fontSize: '1.05rem' }}>{item.farmName || 'Farm Assessment'}</strong>
+                    <strong style={{ fontSize: '1.05rem' }}>
+                      {item.farmName || 'Farm Assessment'}
+                    </strong>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                       ({item.farmerName || 'Farmer'})
                     </span>
@@ -1682,11 +1850,22 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                     </span>
                   </div>
 
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                  <div
+                    style={{
+                      fontSize: '0.85rem',
+                      color: 'var(--text-secondary)',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
                     {item.county ? `Region: ${item.county} County • ` : ''}
-                    Prescriptions: {item.engineBaseline?.prescriptions?.length ?? 0} items • Commercial Formulations: {item.engineBaseline?.commercialInputs?.length ?? 0}
-                    {item.officerEdits?.length > 0 ? ` • ${item.officerEdits.length} Officer note(s)` : ''}
-                    {item.agronomistEdits?.length > 0 ? ` • ${item.agronomistEdits.length} Agronomist note(s)` : ''}
+                    Prescriptions: {item.engineBaseline?.prescriptions?.length ?? 0} items •
+                    Commercial Formulations: {item.engineBaseline?.commercialInputs?.length ?? 0}
+                    {item.officerEdits?.length > 0
+                      ? ` • ${item.officerEdits.length} Officer note(s)`
+                      : ''}
+                    {item.agronomistEdits?.length > 0
+                      ? ` • ${item.agronomistEdits.length} Agronomist note(s)`
+                      : ''}
                   </div>
 
                   {/* Summary Diagnoses Tags */}
@@ -1703,14 +1882,14 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                               d.status === 'optimal'
                                 ? 'rgba(22, 163, 74, 0.1)'
                                 : d.status === 'critical'
-                                ? 'rgba(220, 38, 38, 0.1)'
-                                : 'rgba(234, 88, 12, 0.1)',
+                                  ? 'rgba(220, 38, 38, 0.1)'
+                                  : 'rgba(234, 88, 12, 0.1)',
                             color:
                               d.status === 'optimal'
                                 ? '#16a34a'
                                 : d.status === 'critical'
-                                ? '#dc2626'
-                                : '#ea580c',
+                                  ? '#dc2626'
+                                  : '#ea580c',
                             fontWeight: 500,
                           }}
                         >
@@ -1721,12 +1900,17 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                   )}
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div
+                  style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}
+                >
                   <button
                     className="primary-button"
                     type="button"
                     style={{ fontSize: '0.8rem', padding: '0.35rem 0.85rem' }}
-                    onClick={() => handleOpenAssessment(item)}
+                    onClick={(event) => {
+                      assessmentTriggerRef.current = event.currentTarget
+                      handleOpenAssessment(item)
+                    }}
                   >
                     <FileText size={14} /> Inspect & Review
                   </button>
@@ -2099,8 +2283,46 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                     color: 'var(--primary-color)',
                   }}
                 >
-                  📍 Verified On-Site GPS Coordinates
+                  📍 On-Site GPS Coordinates
                 </strong>
+                <p
+                  style={{
+                    margin: '0 0 0.65rem',
+                    fontSize: '0.8rem',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  Your browser will ask permission to use this device&apos;s location when the form
+                  opens. Accuracy is the device&apos;s estimated horizontal radius, not a guarantee.
+                  For a better fix, enable device location, move outdoors with a clear view of the
+                  sky, and wait briefly before retrying.
+                </p>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={captureCurrentLocation}
+                  disabled={gpsStatus === 'locating'}
+                >
+                  <MapPin size={14} />
+                  {gpsStatus === 'locating' ? 'Getting location…' : 'Use current location'}
+                </button>
+                {gpsStatus === 'captured' && gpsCapturedAt && (
+                  <p role="status" style={{ margin: '0.5rem 0', fontSize: '0.8rem' }}>
+                    Location captured {new Date(gpsCapturedAt).toLocaleTimeString()} · estimated
+                    accuracy ±{Number(collectionUncertainty).toFixed(1)} m
+                  </p>
+                )}
+                {gpsStatus === 'captured' && Number(collectionUncertainty) > 50 && (
+                  <p style={{ margin: '0.5rem 0', fontSize: '0.8rem' }}>
+                    This is a coarse location fix (over 50 m). Retry outdoors with location services
+                    enabled for a more precise reading before saving.
+                  </p>
+                )}
+                {gpsError && (
+                  <p role="alert" style={{ margin: '0.5rem 0', fontSize: '0.8rem' }}>
+                    {gpsError}
+                  </p>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   <label className="auth-field" style={{ margin: 0 }}>
                     <span style={{ fontSize: '0.8rem' }}>Latitude</span>
@@ -2136,13 +2358,15 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                   </label>
                 </div>
                 <label className="auth-field" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-                  <span style={{ fontSize: '0.8rem' }}>Accuracy / Uncertainty (meters)</span>
+                  <span style={{ fontSize: '0.8rem' }}>Estimated accuracy radius (meters)</span>
                   <input
                     type="number"
                     step="any"
-                    placeholder="5.0"
+                    min="0"
+                    placeholder="e.g. 10"
                     value={collectionUncertainty}
                     onChange={(e) => setCollectionUncertainty(e.target.value)}
+                    required
                     style={{
                       padding: '0.4rem',
                       borderRadius: '0.25rem',
@@ -2274,10 +2498,7 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                       }}
                     />
                   </label>
-                  <label
-                    className="auth-field"
-                    style={{ margin: 0, gridColumn: 'span 2' }}
-                  >
+                  <label className="auth-field" style={{ margin: 0, gridColumn: 'span 2' }}>
                     <span style={{ fontSize: '0.8rem' }}>Exchangeable Potassium (cmol/kg)</span>
                     <input
                       type="number"
@@ -2352,6 +2573,14 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
         >
           <div
             className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="assessment-dialog-title"
+            tabIndex={-1}
+            ref={assessmentDialogRef}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setSelectedAssessment(null)
+            }}
             style={{
               backgroundColor: 'var(--surface-panel)',
               borderRadius: '0.75rem',
@@ -2375,11 +2604,16 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
             >
               <div>
                 <div className="eyebrow">KALRO ASSESSMENT PRE-REVIEW</div>
-                <h3 style={{ margin: '0.2rem 0', fontSize: '1.25rem' }}>
-                  {selectedAssessment.farmName || 'Farm Assessment'} — {selectedAssessment.crop.toUpperCase()}
+                <h3
+                  id="assessment-dialog-title"
+                  style={{ margin: '0.2rem 0', fontSize: '1.25rem' }}
+                >
+                  {selectedAssessment.farmName || 'Farm Assessment'} —{' '}
+                  {selectedAssessment.crop.toUpperCase()}
                 </h3>
                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  Farmer: {selectedAssessment.farmerName || 'Farmer'} • County: {selectedAssessment.county || 'N/A'} • Stage: {selectedAssessment.reviewStage}
+                  Farmer: {selectedAssessment.farmerName || 'Farmer'} • County:{' '}
+                  {selectedAssessment.county || 'N/A'} • Stage: {selectedAssessment.reviewStage}
                 </p>
               </div>
               <button
@@ -2387,6 +2621,7 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                 type="button"
                 style={{ fontSize: '0.8rem', padding: '0.25rem 0.6rem' }}
                 onClick={() => setSelectedAssessment(null)}
+                aria-label="Close assessment review"
               >
                 Close
               </button>
@@ -2394,7 +2629,13 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
 
             {/* Diagnoses Section */}
             <div style={{ marginBottom: '1.25rem' }}>
-              <h4 style={{ fontSize: '0.95rem', marginBottom: '0.5rem', color: 'var(--primary-color)' }}>
+              <h4
+                style={{
+                  fontSize: '0.95rem',
+                  marginBottom: '0.5rem',
+                  color: 'var(--primary-color)',
+                }}
+              >
                 1. Soil Diagnoses & Indicators
               </h4>
               <div
@@ -2414,7 +2655,13 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                       backgroundColor: 'var(--surface-accent)',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginBottom: '0.25rem',
+                      }}
+                    >
                       <strong style={{ fontSize: '0.85rem', textTransform: 'capitalize' }}>
                         {diag.analyte.replace('_', ' ')}
                       </strong>
@@ -2427,14 +2674,20 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                             diag.status === 'optimal'
                               ? '#16a34a'
                               : diag.status === 'critical'
-                              ? '#dc2626'
-                              : '#ea580c',
+                                ? '#dc2626'
+                                : '#ea580c',
                         }}
                       >
                         {diag.status}
                       </span>
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                    <div
+                      style={{
+                        fontSize: '0.8rem',
+                        color: 'var(--text-secondary)',
+                        marginBottom: '0.35rem',
+                      }}
+                    >
                       {diag.interpretation}
                     </div>
                   </div>
@@ -2444,13 +2697,21 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
 
             {/* Prescriptions & Commercial Inputs Table */}
             <div style={{ marginBottom: '1.25rem' }}>
-              <h4 style={{ fontSize: '0.95rem', marginBottom: '0.5rem', color: 'var(--primary-color)' }}>
+              <h4
+                style={{
+                  fontSize: '0.95rem',
+                  marginBottom: '0.5rem',
+                  color: 'var(--primary-color)',
+                }}
+              >
                 2. Agronomic Prescriptions (KALRO Matrix Scaling)
               </h4>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left' }}>
+                    <tr
+                      style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left' }}
+                    >
                       <th style={{ padding: '0.4rem' }}>Category</th>
                       <th style={{ padding: '0.4rem' }}>Product / Element</th>
                       <th style={{ padding: '0.4rem' }}>Rate / Ha</th>
@@ -2466,7 +2727,13 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                         <td style={{ padding: '0.4rem' }}>{p.productType}</td>
                         <td style={{ padding: '0.4rem' }}>{p.ratePerHa}</td>
                         <td style={{ padding: '0.4rem' }}>{p.ratePerAcre}</td>
-                        <td style={{ padding: '0.4rem', fontWeight: 600, color: 'var(--primary-color)' }}>
+                        <td
+                          style={{
+                            padding: '0.4rem',
+                            fontWeight: 600,
+                            color: 'var(--primary-color)',
+                          }}
+                        >
                           {p.totalFarmPrescription}
                         </td>
                         <td style={{ padding: '0.4rem' }}>{p.applicationTiming}</td>
@@ -2487,7 +2754,13 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
               }}
             >
               <div>
-                <h4 style={{ fontSize: '0.95rem', marginBottom: '0.5rem', color: 'var(--primary-color)' }}>
+                <h4
+                  style={{
+                    fontSize: '0.95rem',
+                    marginBottom: '0.5rem',
+                    color: 'var(--primary-color)',
+                  }}
+                >
                   3. Commercial Fertilizer Bridge
                 </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -2501,13 +2774,25 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                         backgroundColor: 'var(--surface-accent)',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
                         <strong style={{ fontSize: '0.85rem' }}>{c.commercialFormulation}</strong>
                         <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#2563eb' }}>
                           {c.totalBagsNeeded} {c.bagUnit}
                         </span>
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                      <div
+                        style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--text-secondary)',
+                          marginTop: '0.2rem',
+                        }}
+                      >
                         Purpose: {c.purpose}
                       </div>
                     </div>
@@ -2516,7 +2801,13 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
               </div>
 
               <div>
-                <h4 style={{ fontSize: '0.95rem', marginBottom: '0.5rem', color: 'var(--primary-color)' }}>
+                <h4
+                  style={{
+                    fontSize: '0.95rem',
+                    marginBottom: '0.5rem',
+                    color: 'var(--primary-color)',
+                  }}
+                >
                   4. Application Split Schedule
                 </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -2531,9 +2822,17 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                       }}
                     >
                       <strong style={{ fontSize: '0.85rem', display: 'block' }}>{s.stage}</strong>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{s.action}</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                        {s.action}
+                      </span>
                       {s.notes && (
-                        <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        <p
+                          style={{
+                            margin: '0.2rem 0 0 0',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
                           {s.notes}
                         </p>
                       )}
@@ -2568,7 +2867,14 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                   >
                     <Sparkles size={16} /> AI Agronomic Advisory & Regional Insights Layer
                   </div>
-                  <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.825rem', color: 'var(--text-primary)' }}>
+                  <ul
+                    style={{
+                      margin: 0,
+                      paddingLeft: '1.25rem',
+                      fontSize: '0.825rem',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
                     {selectedAssessment.engineBaseline.aiAdvisoryNotes.map((note, idx) => (
                       <li key={idx} style={{ marginBottom: '0.25rem' }}>
                         {note}
@@ -2588,13 +2894,21 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                 marginBottom: '1.25rem',
               }}
             >
-              <h4 style={{ fontSize: '0.9rem', margin: '0 0 0.5rem 0', color: 'var(--text-secondary)' }}>
+              <h4
+                style={{
+                  fontSize: '0.9rem',
+                  margin: '0 0 0.5rem 0',
+                  color: 'var(--text-secondary)',
+                }}
+              >
                 Collaborative Review Thread
               </h4>
               {(!selectedAssessment.officerEdits || selectedAssessment.officerEdits.length === 0) &&
-              (!selectedAssessment.agronomistEdits || selectedAssessment.agronomistEdits.length === 0) ? (
+              (!selectedAssessment.agronomistEdits ||
+                selectedAssessment.agronomistEdits.length === 0) ? (
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  No collaborative notes recorded yet. Add notes below to document field adjustments.
+                  No collaborative notes recorded yet. Add notes below to document field
+                  adjustments.
                 </p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -2602,7 +2916,9 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                     ...(selectedAssessment.officerEdits || []),
                     ...(selectedAssessment.agronomistEdits || []),
                   ]
-                    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                    .sort(
+                      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+                    )
                     .map((item, idx) => (
                       <div
                         key={idx}
@@ -2628,7 +2944,9 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
               {/* Form to append collaborative feedback */}
               <form onSubmit={handleSaveAssessmentNotes} style={{ marginTop: '0.75rem' }}>
                 <label className="auth-field" style={{ margin: 0 }}>
-                  <span style={{ fontSize: '0.8rem' }}>Add Agronomic / Field Observations & Guidance</span>
+                  <span style={{ fontSize: '0.8rem' }}>
+                    Add Agronomic / Field Observations & Guidance
+                  </span>
                   <textarea
                     rows={2}
                     value={assessmentNotes}
@@ -2664,9 +2982,15 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
               }}
             >
               <strong>Agronomist verification required</strong>
-              <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                Agronomists claim assessments and publish verified reports from their dedicated workspace.
-                You can add field observations above.
+              <p
+                style={{
+                  margin: '0.5rem 0 0',
+                  fontSize: '0.85rem',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Agronomists claim assessments and publish verified reports from their dedicated
+                workspace. You can add field observations above.
               </p>
             </div>
           </div>
@@ -2675,20 +2999,51 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
 
       {/* Register Farmer On-Site Modal */}
       {showRegisterFarmerModal && (
-        <div className="auth-card-backdrop" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div className="auth-card" style={{ maxWidth: '540px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <div
+          className="auth-card-backdrop"
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
+          }}
+        >
+          <div
+            className="auth-card"
+            style={{ maxWidth: '540px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                marginBottom: '0.5rem',
+              }}
+            >
               <UserPlus size={20} color="var(--primary, #2d6a4f)" />
               <h3 style={{ margin: 0 }}>Register Farmer On-Site</h3>
             </div>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-              Register a farmer during an on-site field encounter. The farmer receives an email claim link
-              with 6 daily reminders. If unclaimed by Day 7, the account and initial farm are cascade-deleted.
+            <p
+              style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}
+            >
+              Register a farmer during an on-site field encounter. The farmer receives an email
+              claim link with 6 daily reminders. If unclaimed by Day 7, the account and initial farm
+              are cascade-deleted.
             </p>
 
             <form onSubmit={handleRegisterFarmerOnSite}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <label htmlFor="register-farmer-email" className="auth-field" style={{ gridColumn: 'span 2' }}>
+                <label
+                  htmlFor="register-farmer-email"
+                  className="auth-field"
+                  style={{ gridColumn: 'span 2' }}
+                >
                   <span>Farmer Email Address *</span>
                   <input
                     id="register-farmer-email"
@@ -2723,7 +3078,11 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                   />
                 </label>
 
-                <label htmlFor="register-farmer-farm-name" className="auth-field" style={{ gridColumn: 'span 2' }}>
+                <label
+                  htmlFor="register-farmer-farm-name"
+                  className="auth-field"
+                  style={{ gridColumn: 'span 2' }}
+                >
                   <span>Initial Farm Name *</span>
                   <input
                     id="register-farmer-farm-name"
@@ -2745,7 +3104,9 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                   >
                     <option value="">Select County…</option>
                     {KENYA_COUNTIES.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -2787,7 +3148,11 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                   />
                 </label>
 
-                <label htmlFor="register-farmer-crops" className="auth-field" style={{ gridColumn: 'span 2' }}>
+                <label
+                  htmlFor="register-farmer-crops"
+                  className="auth-field"
+                  style={{ gridColumn: 'span 2' }}
+                >
                   <span>Primary Crops (Comma-separated)</span>
                   <input
                     id="register-farmer-crops"
@@ -2799,7 +3164,14 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                 </label>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '0.5rem',
+                  marginTop: '1.25rem',
+                }}
+              >
                 <button
                   type="button"
                   className="secondary-button"

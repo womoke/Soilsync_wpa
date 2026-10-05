@@ -36,6 +36,7 @@ export interface AuthContextValue {
   activeRoles: AppUserRole[]
   allRoles: UserRoleRecord[]
   isLoading: boolean
+  isInitializing: boolean
   error: string | null
   signInWithPassword: (email: string, password: string) => Promise<{ error: Error | null }>
   signUpWithPassword: (
@@ -59,6 +60,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [allRoles, setAllRoles] = useState<UserRoleRecord[]>([])
   const [activeRoles, setActiveRoles] = useState<AppUserRole[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(Boolean(supabase))
+  const [isInitializing, setIsInitializing] = useState<boolean>(Boolean(supabase))
   const [error, setError] = useState<string | null>(null)
   const userDataLoadId = useRef(0)
 
@@ -232,13 +234,17 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         queueMicrotask(() => {
           if (!mounted) return
           void loadUserData(newSession.user).then((result) => {
-            if (mounted && result !== 'stale') setIsLoading(false)
+            if (mounted && result !== 'stale') {
+              setIsLoading(false)
+              setIsInitializing(false)
+            }
           })
         })
       } else {
         clearUserData()
         setError(null)
         setIsLoading(false)
+        setIsInitializing(false)
       }
     })
 
@@ -251,6 +257,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         if (initialError) {
           setError(initialError.message)
           setIsLoading(false)
+          setIsInitializing(false)
           return
         }
 
@@ -258,17 +265,22 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         setUser(initialSession?.user ?? null)
         if (initialSession?.user) {
           void loadUserData(initialSession.user).then((result) => {
-            if (mounted && result !== 'stale') setIsLoading(false)
+            if (mounted && result !== 'stale') {
+              setIsLoading(false)
+              setIsInitializing(false)
+            }
           })
         } else {
           clearUserData()
           setIsLoading(false)
+          setIsInitializing(false)
         }
       })
       .catch((sessionError: unknown) => {
         if (!mounted || receivedAuthStateChange) return
         setError(sessionError instanceof Error ? sessionError.message : 'Session retrieval failed.')
         setIsLoading(false)
+        setIsInitializing(false)
       })
 
     return () => {
@@ -371,6 +383,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     activeRoles,
     allRoles,
     isLoading,
+    isInitializing,
     error,
     signInWithPassword,
     signUpWithPassword,

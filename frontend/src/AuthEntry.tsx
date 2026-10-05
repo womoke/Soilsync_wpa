@@ -4,6 +4,7 @@ import { ArrowRight, LockKeyhole, Sprout } from 'lucide-react'
 import { activateAccountInvitation, linkAuthenticatedAccount, type AppRole } from './api/auth'
 import { validatePasswordPolicy } from './lib/passwordPolicy'
 import { getSupabaseClient } from './lib/supabase'
+import { SoilSyncLoading } from './SoilSyncLoading'
 
 interface AuthEntryProps {
   onAuthenticated: (destination: string) => void
@@ -66,6 +67,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
   const [password, setPassword] = useState('')
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [isWorking, setIsWorking] = useState(false)
+  const [isResolvingAccount, setIsResolvingAccount] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
@@ -79,6 +81,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
       name?: string,
       canNavigate: () => boolean = () => true,
     ) => {
+      setIsResolvingAccount(true)
       try {
         const profile = await linkAuthenticatedAccount(session.access_token, name)
         if (canNavigate()) onAuthenticatedRef.current(destinationByRole[profile.role])
@@ -93,6 +96,8 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
           )
         }
         throw linkError
+      } finally {
+        setIsResolvingAccount(false)
       }
     },
     [supabase],
@@ -199,6 +204,14 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
     } finally {
       setIsWorking(false)
     }
+  }
+
+  if (isResolvingAccount) {
+    return (
+      <main className="auth-entry" id="overview">
+        <SoilSyncLoading label="Opening your secure workspace…" />
+      </main>
+    )
   }
 
   return (

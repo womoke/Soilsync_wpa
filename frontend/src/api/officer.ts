@@ -148,7 +148,10 @@ export function claimOfficerVisit(accessToken: string, visitId: string): Promise
   )
 }
 
-export function releaseOfficerVisit(accessToken: string, visitId: string): Promise<OfficerVisitItem> {
+export function releaseOfficerVisit(
+  accessToken: string,
+  visitId: string,
+): Promise<OfficerVisitItem> {
   return officerRequest<OfficerVisitItem>(
     accessToken,
     `/api/v1/officer/visits/${encodeURIComponent(visitId)}/release`,
@@ -322,6 +325,11 @@ export interface UnverifiedAssessmentItem {
   county: string
   subCounty?: string | null
   ward?: string | null
+  officerName?: string | null
+  sampledAt?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  locationUncertaintyM?: number | null
   crop: string
   engineVersion: string
   engineBaseline: {
@@ -370,8 +378,16 @@ export interface UnverifiedAssessmentItem {
     role: string
     notes: string
     timestamp: string
+    adjustments?: AssessmentAdjustment[]
   }>
   createdAt?: string | null
+}
+
+export interface AssessmentAdjustment {
+  section: 'diagnosis' | 'prescription'
+  target: string
+  field: 'interpretation' | 'applicationTiming' | 'ratePerHa' | 'ratePerAcre'
+  value: string
 }
 
 export function getUnverifiedAssessments(
@@ -421,7 +437,7 @@ export function editAssessment(
   accessToken: string,
   assessmentId: string,
   notes: string,
-  adjustments?: Array<Record<string, unknown>>,
+  adjustments?: AssessmentAdjustment[],
 ): Promise<{
   assessmentId: string
   status: string
@@ -516,5 +532,3 @@ export function registerUnclaimedFarmer(
 export function fetchUnclaimedFarmers(accessToken: string): Promise<UnclaimedFarmerItem[]> {
   return officerRequest(accessToken, '/api/v1/officer/unclaimed-farmers')
 }
-
-

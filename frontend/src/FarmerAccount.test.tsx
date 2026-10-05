@@ -115,13 +115,16 @@ describe('authenticated farmer workspace', () => {
         if (url === '/api/v1/farms/me') return jsonResponse(farmerProfile())
         if (url === '/api/v1/farms/farm-1/readings' && method === 'GET') return jsonResponse([])
         if (url === '/api/v1/farms/farm-1/visit-request' && method === 'POST')
-          return jsonResponse({
-            requestId: 'req-001',
-            farmId: 'farm-1',
-            status: 'requested',
-            message: 'Field visit request submitted to county extension officer pool.',
-            createdAt: '2026-10-02T00:00:00Z',
-          }, 201)
+          return jsonResponse(
+            {
+              requestId: 'req-001',
+              farmId: 'farm-1',
+              status: 'requested',
+              message: 'Field visit request submitted to county extension officer pool.',
+              createdAt: '2026-10-02T00:00:00Z',
+            },
+            201,
+          )
         if (url === '/api/v1/farms/farm-1/recommendations')
           return jsonResponse([farmerRecommendation()])
         if (url === '/api/v1/recommendations/recommendation-1/feedback' && method === 'GET')
@@ -228,6 +231,78 @@ describe('authenticated farmer workspace', () => {
       screen.getByRole('status', { name: 'Checking secure farmer session…' }),
     ).toBeInTheDocument()
     expect(document.querySelector('.soilsync-loading-brand')).toBeInTheDocument()
+  })
+
+  it('skips the duplicate account-link request when the route has verified the farmer role', async () => {
+    const session = testSession()
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({ data: { session }, error: null }),
+      },
+    })
+    render(<FarmerAccount onBackToDemo={vi.fn()} roleVerifiedByRoute />)
+
+    expect(await screen.findByRole('heading', { name: 'Welcome, Amina Njeri' })).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === '/api/v1/auth/link')).toBe(
+      false,
+    )
+  })
+
+  it('still shows a verified report when the readings request fails', async () => {
+    const session = testSession()
+    const originalFetch = vi.mocked(fetch)
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({ data: { session }, error: null }),
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url === '/api/v1/farms/farm-1/readings') {
+          return jsonResponse({ detail: 'Soil readings are temporarily unavailable.' }, 500)
+        }
+        if (url === '/api/v1/farms/farm-1/reports/verified') {
+          return jsonResponse({
+            reportId: 'report-1',
+            assessmentId: 'assessment-1',
+            farmId: 'farm-1',
+            farmName: 'Kiboko Farm',
+            crop: 'maize',
+            county: 'Makueni',
+            publishedAt: '2026-10-03T15:00:00Z',
+            publishedBy: {
+              agronomistId: 'agronomist-1',
+              name: 'Dr. Test',
+              licenseNumber: 'TEST-1',
+            },
+            status: 'verified',
+            diagnoses: [],
+            prescriptions: [],
+            commercialInputs: [],
+            splitSchedule: [],
+            aiAdvisoryNotes: [],
+            certification: 'Certified report',
+          })
+        }
+        return originalFetch(input, init)
+      }),
+    )
+    render(<FarmerAccount onBackToDemo={vi.fn()} roleVerifiedByRoute />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Verified Soil Assessment for Kiboko Farm' }),
+    ).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Soil readings: Soil readings are temporarily unavailable.',
+    )
   })
 
   it('explains missing Auth configuration and provides a path back to the role directory', async () => {

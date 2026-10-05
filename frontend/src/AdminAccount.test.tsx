@@ -184,6 +184,7 @@ const mockAuditLogs = [
 describe('AdminAccount Component - Section 6 Admin Workflow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.unstubAllEnvs()
     getClient.mockReturnValue(null)
     linkAccount.mockReset()
 
@@ -426,6 +427,23 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
     expect(signOut).not.toHaveBeenCalled()
   })
 
+  it('does not repeat account linking after the app route has verified the admin role', async () => {
+    const session = { access_token: 'verified-admin-token' }
+    getClient.mockReturnValue({
+      auth: {
+        getSession: vi.fn().mockResolvedValue({ data: { session } }),
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+      },
+    })
+
+    render(<AdminAccount onBackToDemo={vi.fn()} roleVerifiedByRoute />)
+
+    expect(await screen.findByText('Registered Users')).toBeInTheDocument()
+    expect(linkAccount).not.toHaveBeenCalled()
+  })
+
   it('signs out and withholds admin data when the linked account has another role', async () => {
     const session = { access_token: 'verified-farmer-token' }
     const signOut = vi.fn().mockResolvedValue({ error: null })
@@ -567,6 +585,10 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
     fireEvent.click(await screen.findByRole('button', { name: /System Settings/i }))
     expect(await screen.findByText('System Configuration & Parameters')).toBeInTheDocument()
     expect(screen.getByText('sync.max_batch_size')).toBeInTheDocument()
+    expect(screen.getByText('Sync batch size')).toBeInTheDocument()
+    expect(
+      screen.getAllByText(/does not currently read this stored value/i).length,
+    ).toBeGreaterThan(0)
 
     // Click edit on the setting
     const editBtns = screen.getAllByRole('button', { name: 'Edit' })
@@ -590,6 +612,25 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: /Audit Trail/i }))
     expect(await screen.findByText('Privileged Actions Audit Log')).toBeInTheDocument()
     expect(screen.getByText('approve_user')).toBeInTheDocument()
+  })
+
+  it('explains when the signed-in admin lacks account-management permission', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ detail: 'manage_accounts permission is required.' }),
+    })
+
+    render(<AdminAccount onBackToDemo={vi.fn()} />)
+
+    const tokenInput = screen.getByPlaceholderText(/Paste .* here/i)
+    fireEvent.change(tokenInput, { target: { value: 'test-admin-token' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Set Token' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Accounts & Roles/i }))
+
+    expect(
+      await screen.findByText(/missing the manage_accounts permission/i),
+    ).toBeInTheDocument()
   })
 
   it('opens invite officer modal and submits extension officer invitation', async () => {
@@ -631,9 +672,15 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
     // Success message
     await waitFor(() => {
       expect(
-        screen.getByText(/Invitation sent to invited\.officer@example\.com/i),
+        screen.getByText(
+          /Invitation request accepted for invited\.officer@example\.com.*not that it reached the inbox/i,
+        ),
       ).toBeInTheDocument()
     })
+    expect(screen.getByRole('link', { name: 'Open local email inbox' })).toHaveAttribute(
+      'href',
+      'http://127.0.0.1:54324/',
+    )
   })
 
   it('invites an agrodealer with a seeded business profile', async () => {
@@ -660,7 +707,7 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Send Invitation/i }))
     expect(
-      await screen.findByText(/Invitation sent to new\.dealer@example\.com/i),
+      await screen.findByText(/Invitation request accepted for new\.dealer@example\.com/i),
     ).toBeInTheDocument()
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/admin/agrodealer/invite',

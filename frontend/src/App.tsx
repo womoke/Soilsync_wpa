@@ -25,6 +25,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { RouteGuard } from './RouteGuard'
 import AuthEntry from './AuthEntry'
 import ProfileSettings from './ProfileSettings'
+import { SoilSyncLoading } from './SoilSyncLoading'
 import { roleOptions, workflowByRole, type UserRole } from './mock/userRoles'
 import type { SoilAnalyte, SoilReading, SoilReadingValues, SoilRecommendation } from './types/soil'
 import './App.css'
@@ -146,7 +147,16 @@ function toReadingValues(record: SoilReading): SoilReadingValues {
 }
 
 function AppContent() {
-  const { session, user, profile, activeRoles, isLoading, error, signOut } = useAuth()
+  const {
+    session,
+    user,
+    profile,
+    activeRoles,
+    isLoading,
+    isInitializing,
+    error,
+    signOut,
+  } = useAuth()
   const [theme, setTheme] = useState<Theme>(readSavedTheme)
   const [currentHash, setCurrentHash] = useState(() => window.location.hash)
   const [reading, setReading] = useState<SoilReadingValues>(emptyReading)
@@ -490,9 +500,11 @@ function AppContent() {
             <p className="history-empty">No summary records are available for this role.</p>
           )}
           {!dashboardSeed && (
-            <p className="history-empty">
-              {databaseError ? 'Dashboard records are unavailable.' : 'Loading dashboard records.'}
-            </p>
+            databaseError ? (
+              <p className="history-empty">Dashboard records are unavailable.</p>
+            ) : (
+              <SoilSyncLoading label="Loading dashboard records…" compact />
+            )
           )}
         </section>
 
@@ -643,9 +655,11 @@ function AppContent() {
                   </div>
                 </>
               ) : (
-                <p className="history-empty">
-                  {dealerDataError ? 'Dealer catalog unavailable.' : 'Loading dealer catalog.'}
-                </p>
+                dealerDataError ? (
+                  <p className="history-empty">Dealer catalog unavailable.</p>
+                ) : (
+                  <SoilSyncLoading label="Loading dealer catalog…" compact />
+                )
               )}
             </article>
           </section>
@@ -748,6 +762,10 @@ function AppContent() {
         </section>
       </div>
     )
+  }
+
+  if (isInitializing) {
+    return <SoilSyncLoading label="Loading SoilSync AI…" fullScreen />
   }
 
   return (
@@ -886,12 +904,13 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <p className="account-loading" role="status">
-                  Opening farmer account…
-                </p>
+                <SoilSyncLoading label="Opening farmer workspace…" />
               }
             >
-              <FarmerAccount onBackToDemo={() => navigateTo('/welcome', true)} />
+              <FarmerAccount
+                onBackToDemo={() => navigateTo('/welcome', true)}
+                roleVerifiedByRoute
+              />
             </Suspense>
           </div>
         </RouteGuard>
@@ -900,12 +919,13 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <p className="account-loading" role="status">
-                  Opening officer workspace…
-                </p>
+                <SoilSyncLoading label="Opening officer workspace…" />
               }
             >
-              <ExtensionOfficerAccount onBackToDemo={() => navigateTo('/welcome', true)} />
+              <ExtensionOfficerAccount
+                onBackToDemo={() => navigateTo('/welcome', true)}
+                roleVerifiedByRoute
+              />
             </Suspense>
           </div>
         </RouteGuard>
@@ -914,12 +934,13 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <p className="account-loading" role="status">
-                  Opening agrodealer workspace…
-                </p>
+                <SoilSyncLoading label="Opening agrodealer workspace…" />
               }
             >
-              <AgrodealerAccount onBackToDemo={() => navigateTo('/welcome', true)} />
+              <AgrodealerAccount
+                onBackToDemo={() => navigateTo('/welcome', true)}
+                roleVerifiedByRoute
+              />
             </Suspense>
           </div>
         </RouteGuard>
@@ -928,9 +949,7 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <p className="account-loading" role="status">
-                  Opening agronomist workspace…
-                </p>
+                <SoilSyncLoading label="Opening agronomist workspace…" />
               }
             >
               <AgronomistAccount onBackToDemo={() => navigateTo('/welcome', true)} />
@@ -942,12 +961,13 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <p className="account-loading" role="status">
-                  Opening admin workspace…
-                </p>
+                <SoilSyncLoading label="Opening admin workspace…" />
               }
             >
-              <AdminAccount onBackToDemo={() => navigateTo('/welcome', true)} />
+              <AdminAccount
+                onBackToDemo={() => navigateTo('/welcome', true)}
+                roleVerifiedByRoute
+              />
             </Suspense>
           </div>
         </RouteGuard>

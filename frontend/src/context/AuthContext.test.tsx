@@ -36,11 +36,13 @@ describe('AuthContext', () => {
     const { result } = renderHook(() => useAuth(), { wrapper })
 
     expect(result.current.isLoading).toBe(true)
+    expect(result.current.isInitializing).toBe(true)
 
     // Wait for getSession to resolve
     await act(async () => {})
 
     expect(result.current.isLoading).toBe(false)
+    expect(result.current.isInitializing).toBe(false)
     expect(result.current.session).toBeNull()
     expect(result.current.user).toBeNull()
     expect(result.current.activeRoles).toEqual([])
@@ -111,6 +113,7 @@ describe('AuthContext', () => {
     expect(result.current.session?.access_token).toBe('fresh-token')
     expect(result.current.user?.id).toBe('usr-123')
     expect(result.current.activeRoles).toEqual(['farmer'])
+    expect(result.current.isInitializing).toBe(false)
   })
 
   it('signs in successfully with email and password and loads active roles', async () => {

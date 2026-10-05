@@ -85,6 +85,43 @@ describe('AuthEntry', () => {
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('/agronomist'))
   })
 
+  it('shows the branded loader while resolving the account role after sign-in', async () => {
+    const onAuthenticated = vi.fn()
+    let resolveLink!: (response: { ok: boolean; json: () => Promise<unknown> }) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+            resolveLink = resolve
+          }),
+      ),
+    )
+    render(<AuthEntry onAuthenticated={onAuthenticated} />)
+
+    fireEvent.change(await screen.findByLabelText('Email address'), {
+      target: { value: 'amina@example.test' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secure-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    expect(
+      await screen.findByRole('status', { name: 'Opening your secure workspace…' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText('Email address')).not.toBeInTheDocument()
+
+    resolveLink({
+      ok: true,
+      json: async () => ({
+        status: 'linked',
+        appUserId: 'user-123',
+        identityProvider: 'supabase',
+        role: 'farmer',
+      }),
+    })
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('/farmer'))
+  })
+
   it('creates an account and prompts the user to sign in when Supabase returns no session', async () => {
     render(<AuthEntry onAuthenticated={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }))

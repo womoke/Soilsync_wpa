@@ -1364,6 +1364,218 @@ def test_farmer_repository_sql_scopes_records_to_owner(monkeypatch) -> None:
     assert normalized_calls[8][1] == (user_id, recommendation_id)
 
 
+def test_soil_reading_accepts_officer_field_collection_provider() -> None:
+    from app.models import SoilReading
+
+    reading = SoilReading.model_validate(
+        {
+            "contractVersion": 1,
+            "readingId": "officer-reading-000001",
+            "farmId": "farm-000001",
+            "source": {
+                "provider": "OFFICER_FIELD_COLLECTION",
+                "datasetId": None,
+                "recordId": None,
+                "license": None,
+                "attribution": "Collected on-site by Extension Officer",
+                "retrievedAt": None,
+            },
+            "sample": {
+                "sampledAt": None,
+                "sampleYear": None,
+                "depth": {"sourceLabel": "0-20 cm", "topCm": 0, "bottomCm": 20},
+            },
+            "location": {"latitude": 0.0512, "longitude": 34.7521, "uncertaintyM": 8.5},
+            "measurements": [],
+        }
+    )
+
+    assert reading.source.provider == "OFFICER_FIELD_COLLECTION"
+
+
+def test_assessment_adjustments_are_limited_to_report_fields() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from app.models import AssessmentAdjustment
+
+    diagnosis = AssessmentAdjustment.model_validate(
+        {
+            "section": "diagnosis",
+            "target": "soil_ph",
+            "field": "interpretation",
+            "value": "Retest after lime application.",
+        }
+    )
+    assert diagnosis.model_dump(by_alias=True)["target"] == "soil_ph"
+
+    with pytest.raises(ValidationError):
+        AssessmentAdjustment.model_validate(
+            {
+                "section": "diagnosis",
+                "target": "soil_ph",
+                "field": "ratePerHa",
+                "value": "1 t/ha",
+            }
+        )
+
+
+def test_publishing_applies_saved_assessment_adjustments(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    from app import database
+
+    row = {
+        "id": "assessment-1",
+        "farm_id": "farm-1",
+        "soil_reading_id": "reading-1",
+        "crop": "maize",
+        "county": "Nakuru",
+        "sub_county": "Njoro",
+        "ward": "Mau Narok",
+        "created_at": datetime(2026, 10, 2, tzinfo=UTC),
+        "sampled_at": datetime(2026, 10, 1, tzinfo=UTC),
+        "officer_name": "Field Officer",
+        "engine_baseline": {
+            "crop": "maize",
+            "diagnoses": [{
+                "analyte": "soil_ph",
+                "interpretation": "Original diagnosis.",
+            }],
+            "prescriptions": [{
+                "category": "Liming",
+                "productType": "Agricultural Lime",
+                "ratePerHa": "2 t/ha",
+                "ratePerAcre": "0.8 t/acre",
+                "applicationTiming": "Before planting",
+            }],
+        },
+        "officer_edits": [],
+        "agronomist_edits": [{
+            "adjustments": [
+                {
+                    "section": "diagnosis",
+                    "target": "soil_ph",
+                    "field": "interpretation",
+                    "value": "Revised diagnosis.",
+                },
+                {
+                    "section": "prescription",
+                    "target": "Liming::Agricultural Lime",
+                    "field": "ratePerHa",
+                    "value": "1.5 t/ha",
+                },
+            ],
+        }],
+        "farm_name": "Green Farm",
+        "farmer_id": "farmer-1",
+    }
+
+    class PublishCursor:
+        def __init__(self) -> None:
+            self.current_row = None
+            self.commands: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, query, _parameters=None):
+            self.commands.append(query.strip().lower())
+            if query.lstrip().lower().startswith("select"):
+                self.current_row = row
+
+        def fetchone(self):
+            result = self.current_row
+            self.current_row = None
+            return result
+
+    class PublishConnection:
+        def __init__(self, cursor):
+            self.test_cursor = cursor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return self.test_cursor
+
+    cursor = PublishCursor()
+    monkeypatch.setattr(database, "_connect", lambda: PublishConnection(cursor))
+    result = database.publish_verified_assessment(
+        "agronomist-1",
+        "Review Agronomist",
+        "assessment-1",
+        license_number="TEST-1",
+    )
+
+    assert result is not None
+    report = result["verifiedReport"]
+    assert report["diagnoses"][0]["interpretation"] == "Revised diagnosis."
+    assert report["prescriptions"][0]["ratePerHa"] == "1.5 t/ha"
+    assert report["officerName"] == "Field Officer"
+    assert report["sampledAt"] == "2026-10-01T00:00:00+00:00"
+
+
+def test_farmer_verified_report_includes_persisted_metadata(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    from app import database
+
+    class ReportCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, query, parameters):
+            self.query = query
+            self.parameters = parameters
+
+        def fetchone(self):
+            return {
+                "id": "assessment-1",
+                "verified_report": {"reportId": "report-1", "status": "verified"},
+                "county": "Nakuru",
+                "sub_county": "Njoro",
+                "ward": "Mau Narok",
+                "created_at": datetime(2026, 10, 2, tzinfo=UTC),
+                "sampled_at": datetime(2026, 10, 1, tzinfo=UTC),
+                "officer_name": "Field Officer",
+            }
+
+    class ReportConnection:
+        def __init__(self):
+            self.test_cursor = ReportCursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return self.test_cursor
+
+    connection = ReportConnection()
+    monkeypatch.setattr(database, "_connect", lambda: connection)
+
+    report = database.load_farm_verified_report("farmer-1", "farm-1")
+
+    assert report is not None
+    assert report["county"] == "Nakuru"
+    assert report["subCounty"] == "Njoro"
+    assert report["ward"] == "Mau Narok"
+    assert report["officerName"] == "Field Officer"
+    assert report["sampledAt"] == "2026-10-01T00:00:00+00:00"
+
+
 def test_farmer_repository_persists_measurements_and_feedback(monkeypatch) -> None:
     from app import database
     from app.models import FarmerSoilReadingCreateRequest
@@ -3643,6 +3855,69 @@ def test_admin_operational_health_privacy_safeguards(monkeypatch) -> None:
     assert "+254" not in raw_text
     assert "latitude" not in raw_text
     assert "longitude" not in raw_text
+
+
+def test_load_admin_operational_health_uses_dataset_display_name(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    from app import database
+
+    class Cursor:
+        def __init__(self):
+            self.query = ""
+            self.queries = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query):
+            self.query = query
+            self.queries.append(query)
+
+        def fetchall(self):
+            if "source_import_batches" in self.query:
+                return [
+                    {
+                        "id": "batch-1",
+                        "source_file_name": "soil.csv",
+                        "status": "completed",
+                        "rows_read": 3,
+                        "rows_imported": 3,
+                        "rows_rejected": 0,
+                        "started_at": datetime(2026, 1, 1, tzinfo=UTC),
+                        "completed_at": None,
+                        "dataset_key": "soil_dataset",
+                        "dataset_title": "Soil Dataset",
+                    }
+                ]
+            return []
+
+    class Connection:
+        def __init__(self):
+            self._cursor = Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self):
+            return self._cursor
+
+    connection = Connection()
+    monkeypatch.setattr(database, "_connect", lambda: connection)
+
+    health = database.load_admin_operational_health("admin-user")
+
+    assert health["importBatches"][0]["datasetTitle"] == "Soil Dataset"
+    assert any(
+        "sd.display_name AS dataset_title" in query
+        for query in connection._cursor.queries
+    )
 
 
 def test_admin_time_limited_support_access_break_glass(monkeypatch) -> None:

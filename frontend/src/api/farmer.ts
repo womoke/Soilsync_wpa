@@ -58,9 +58,19 @@ async function farmerRequest<T>(
       typeof payload.detail === 'string'
         ? payload.detail
         : `SoilSync API returned HTTP ${response.status}`
-    throw new Error(detail)
+    throw new FarmerApiError(detail, response.status)
   }
   return payload as T
+}
+
+class FarmerApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+    this.name = 'FarmerApiError'
+  }
 }
 
 export function linkFarmerAccount(accessToken: string, displayName?: string) {
@@ -107,11 +117,7 @@ export function createFarmerFarm(
   })
 }
 
-export function requestFarmerFieldVisit(
-  accessToken: string,
-  farmId: string,
-  notes?: string,
-) {
+export function requestFarmerFieldVisit(accessToken: string, farmId: string, notes?: string) {
   return farmerRequest<{
     requestId: string
     farmId: string
@@ -258,6 +264,11 @@ export interface VerifiedSoilReport {
   farmName: string
   crop: string
   county: string
+  subCounty?: string | null
+  ward?: string | null
+  assessedAt?: string | null
+  sampledAt?: string | null
+  officerName?: string | null
   publishedAt: string
   publishedBy: {
     agronomistId: string
@@ -306,8 +317,8 @@ export async function getFarmVerifiedReport(
       accessToken,
       `/api/v1/farms/${encodeURIComponent(farmId)}/reports/verified`,
     )
-  } catch {
-    return null
+  } catch (error) {
+    if (error instanceof FarmerApiError && error.status === 404) return null
+    throw error
   }
 }
-

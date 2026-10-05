@@ -1029,7 +1029,10 @@ def edit_assessment_endpoint(
             assessment_id=assessment_id,
             author_name=author_name,
             notes=payload.notes,
-            adjustments=payload.adjustments,
+            adjustments=[
+                adjustment.model_dump(by_alias=True)
+                for adjustment in payload.adjustments or []
+            ],
         )
     except DatabaseUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

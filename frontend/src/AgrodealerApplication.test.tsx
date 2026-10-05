@@ -20,6 +20,7 @@ describe('AgrodealerApplication Component', () => {
       activeRoles: ['farmer'],
       allRoles: [{ role: 'farmer', status: 'active' }],
       isLoading: false,
+      isInitializing: false,
       error: null,
       signInWithPassword: vi.fn(),
       signUpWithPassword: vi.fn(),

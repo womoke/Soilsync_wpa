@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
@@ -221,6 +221,38 @@ beforeEach(() => {
 })
 
 describe('farmer overview prototype', () => {
+  it('shows only the branded loading screen until initial session restoration completes', async () => {
+    window.history.replaceState(null, '', '/welcome')
+    let resolveSession!: (value: {
+      data: { session: null }
+      error: null
+    }) => void
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              resolveSession = resolve
+            }),
+        ),
+      },
+    })
+
+    render(<App />)
+
+    expect(screen.getByRole('status', { name: 'Loading SoilSync AI…' })).toBeInTheDocument()
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).not.toBeInTheDocument()
+
+    await waitFor(() => expect(resolveSession).toBeDefined())
+    await act(async () => resolveSession({ data: { session: null }, error: null }))
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+  })
+
   it('exposes a manifest for the installable PWA shell', async () => {
     vi.stubGlobal(
       'fetch',
@@ -272,6 +304,7 @@ describe('farmer overview prototype', () => {
     window.history.replaceState(null, '', '/welcome')
     render(<App />)
 
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Select user workflow' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
     expect(screen.getByLabelText('Email address')).toBeInTheDocument()
@@ -292,7 +325,7 @@ describe('farmer overview prototype', () => {
   it('highlights the selected in-app navigation destination', async () => {
     render(<App />)
 
-    const navigation = screen.getByRole('navigation')
+    const navigation = await screen.findByRole('navigation')
     const farmLink = within(navigation).getByRole('link', { name: 'My farm' })
 
     fireEvent.click(farmLink)
@@ -380,7 +413,7 @@ describe('farmer overview prototype', () => {
     vi.stubGlobal('fetch', fetchMock)
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Extension officer' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Extension officer' }))
 
     expect(screen.getByText('Farmer roster')).toBeInTheDocument()
     expect((await screen.findAllByText('Amina Njeri')).length).toBeGreaterThan(0)
@@ -395,7 +428,7 @@ describe('farmer overview prototype', () => {
   it('loads the dealer profile and non-orderable catalog from database records', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Agrodealer' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Agrodealer' }))
 
     expect(await screen.findByText('Product catalog')).toBeInTheDocument()
     expect(screen.getByText('Mwangi Agro')).toBeInTheDocument()
@@ -407,7 +440,7 @@ describe('farmer overview prototype', () => {
   it('loads admin accounts from the database-backed users table', async () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Admin' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Admin' }))
 
     expect(await screen.findByText('System accounts')).toBeInTheDocument()
     expect(screen.getByText('amina.njeri@example.com')).toBeInTheDocument()

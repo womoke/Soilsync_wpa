@@ -22,6 +22,7 @@ describe('AgrodealerPendingView Component', () => {
         { role: 'agrodealer', status: 'pending' },
       ],
       isLoading: false,
+      isInitializing: false,
       error: null,
       signInWithPassword: vi.fn(),
       signUpWithPassword: vi.fn(),

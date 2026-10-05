@@ -124,6 +124,14 @@ export type AdminPermission = {
   isActive: boolean
 }
 
+async function getResponseErrorMessage(response: Response, fallback: string): Promise<string> {
+  const body: unknown = await response.json().catch(() => null)
+  if (body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string') {
+    return body.detail
+  }
+  return `${fallback} (HTTP ${response.status})`
+}
+
 export async function getAdminOverview(
   token: string,
   signal?: AbortSignal,
@@ -151,7 +159,7 @@ export async function getAdminUsers(
     headers: { Authorization: `Bearer ${token}` },
     signal,
   })
-  if (!res.ok) throw new Error(`Failed to load system users (HTTP ${res.status})`)
+  if (!res.ok) throw new Error(await getResponseErrorMessage(res, 'Failed to load system users'))
   return res.json()
 }
 

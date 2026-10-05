@@ -23,6 +23,7 @@ SoilDataProvider = Literal[
     "ISRIC_WOSIS",
     "ISRIC_SOILGRIDS",
     "FARMER_OBSERVATION",
+    "OFFICER_FIELD_COLLECTION",
     "DEMO",
 ]
 SoilAnalyte = Literal[
@@ -624,9 +625,24 @@ class AgrodealerApplicationResponse(ContractModel):
     created_at: datetime
 
 
+class AssessmentAdjustment(ContractModel):
+    section: Literal["diagnosis", "prescription"]
+    target: str = Field(min_length=1, max_length=160)
+    field: Literal["interpretation", "applicationTiming", "ratePerHa", "ratePerAcre"]
+    value: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_section_field(self) -> "AssessmentAdjustment":
+        if self.section == "diagnosis" and self.field != "interpretation":
+            raise ValueError("Diagnosis adjustments may only update their interpretation.")
+        if self.section == "prescription" and self.field == "interpretation":
+            raise ValueError("Prescription adjustments may only update rates or application timing.")
+        return self
+
+
 class AssessmentEditRequest(ContractModel):
     notes: str = Field(min_length=2, max_length=2000)
-    adjustments: list[dict[str, Any]] | None = None
+    adjustments: list[AssessmentAdjustment] | None = None
 
 
 class AssessmentPublishRequest(ContractModel):

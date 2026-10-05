@@ -3964,10 +3964,14 @@ def load_unverified_assessments(
                 SELECT a.id, a.farm_id, a.soil_reading_id, a.visit_id, a.officer_user_id,
                        a.claiming_agronomist_id, a.status, a.review_stage, a.county, a.sub_county,
                        a.ward, a.crop, a.engine_version, a.engine_baseline, a.officer_edits,
-                       a.agronomist_edits, a.created_at, f.name AS farm_name, u.display_name AS farmer_name
+                       a.agronomist_edits, a.created_at, sr.sampled_at, sr.latitude, sr.longitude,
+                       sr.location_uncertainty_m, officer.display_name AS officer_name,
+                       f.name AS farm_name, u.display_name AS farmer_name
                 FROM agronomic_assessments AS a
                 JOIN farms AS f ON f.id = a.farm_id
                 JOIN users AS u ON u.id = f.owner_id
+                LEFT JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
+                LEFT JOIN users AS officer ON officer.id = a.officer_user_id
                 WHERE a.officer_user_id = %s
                   AND a.status = 'unverified'
                 ORDER BY a.created_at DESC
@@ -3980,10 +3984,14 @@ def load_unverified_assessments(
                 SELECT a.id, a.farm_id, a.soil_reading_id, a.visit_id, a.officer_user_id,
                        a.claiming_agronomist_id, a.status, a.review_stage, a.county, a.sub_county,
                        a.ward, a.crop, a.engine_version, a.engine_baseline, a.officer_edits,
-                       a.agronomist_edits, a.created_at, f.name AS farm_name, u.display_name AS farmer_name
+                       a.agronomist_edits, a.created_at, sr.sampled_at, sr.latitude, sr.longitude,
+                       sr.location_uncertainty_m, officer.display_name AS officer_name,
+                       f.name AS farm_name, u.display_name AS farmer_name
                 FROM agronomic_assessments AS a
                 JOIN farms AS f ON f.id = a.farm_id
                 JOIN users AS u ON u.id = f.owner_id
+                LEFT JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
+                LEFT JOIN users AS officer ON officer.id = a.officer_user_id
                 JOIN agronomist_profiles AS ap ON ap.user_id = %s
                 WHERE a.status = 'unverified'
                   AND ap.approval_status = 'approved'
@@ -4025,6 +4033,15 @@ def load_unverified_assessments(
                 "officerEdits": row["officer_edits"],
                 "agronomistEdits": row["agronomist_edits"],
                 "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
+                "sampledAt": row["sampled_at"].isoformat() if row["sampled_at"] else None,
+                "latitude": float(row["latitude"]) if row["latitude"] is not None else None,
+                "longitude": float(row["longitude"]) if row["longitude"] is not None else None,
+                "locationUncertaintyM": (
+                    float(row["location_uncertainty_m"])
+                    if row["location_uncertainty_m"] is not None
+                    else None
+                ),
+                "officerName": row["officer_name"],
             }
             for row in rows
         ]
@@ -4179,10 +4196,14 @@ def publish_verified_assessment(
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT a.id, a.farm_id, a.soil_reading_id, a.crop, a.county, a.engine_baseline,
-                   a.officer_edits, a.agronomist_edits, f.name AS farm_name, f.owner_id AS farmer_id
+            SELECT a.id, a.farm_id, a.soil_reading_id, a.crop, a.county, a.sub_county, a.ward,
+                   a.created_at, sr.sampled_at, officer.display_name AS officer_name,
+                   a.engine_baseline, a.officer_edits, a.agronomist_edits,
+                   f.name AS farm_name, f.owner_id AS farmer_id
             FROM agronomic_assessments AS a
             JOIN farms AS f ON f.id = a.farm_id
+            LEFT JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
+            LEFT JOIN users AS officer ON officer.id = a.officer_user_id
             WHERE a.id = %s
               AND a.claiming_agronomist_id = %s
               AND a.status = 'unverified'
@@ -4198,6 +4219,38 @@ def publish_verified_assessment(
         farmer_id = row["farmer_id"]
         farm_name = row["farm_name"]
         baseline = row["engine_baseline"] or {}
+        diagnoses = [dict(item) for item in baseline.get("diagnoses", [])]
+        prescriptions = [dict(item) for item in baseline.get("prescriptions", [])]
+        for edit in row["agronomist_edits"] or []:
+            for adjustment in edit.get("adjustments", []):
+                section = adjustment.get("section")
+                target = adjustment.get("target")
+                field = adjustment.get("field")
+                value = adjustment.get("value")
+                if not all(isinstance(part, str) for part in (target, field, value)):
+                    continue
+                if section == "diagnosis" and field == "interpretation":
+                    matching = next(
+                        (item for item in diagnoses if item.get("analyte") == target),
+                        None,
+                    )
+                elif section == "prescription" and field in {
+                    "applicationTiming",
+                    "ratePerHa",
+                    "ratePerAcre",
+                }:
+                    matching = next(
+                        (
+                            item
+                            for item in prescriptions
+                            if f"{item.get('category', '')}::{item.get('productType', '')}" == target
+                        ),
+                        None,
+                    )
+                else:
+                    continue
+                if matching is not None:
+                    matching[field] = value
 
         verified_doc = {
             "reportId": str(uuid.uuid4()),
@@ -4206,6 +4259,11 @@ def publish_verified_assessment(
             "farmName": farm_name,
             "crop": baseline.get("crop", row["crop"]),
             "county": row["county"],
+            "subCounty": row["sub_county"],
+            "ward": row["ward"],
+            "assessedAt": row["created_at"].isoformat() if row["created_at"] else None,
+            "sampledAt": row["sampled_at"].isoformat() if row["sampled_at"] else None,
+            "officerName": row["officer_name"],
             "publishedAt": datetime.now(UTC).isoformat(),
             "publishedBy": {
                 "agronomistId": agronomist_user_id,
@@ -4213,8 +4271,8 @@ def publish_verified_assessment(
                 "licenseNumber": license_number or "KALRO/AGR-KE-VERIFIED",
             },
             "status": "verified",
-            "diagnoses": baseline.get("diagnoses", []),
-            "prescriptions": baseline.get("prescriptions", []),
+            "diagnoses": diagnoses,
+            "prescriptions": prescriptions,
             "commercialInputs": baseline.get("commercialInputs", []),
             "splitSchedule": baseline.get("splitSchedule", []),
             "aiAdvisoryNotes": baseline.get("aiAdvisoryNotes", []),
@@ -4288,9 +4346,13 @@ def load_farm_verified_report(user_id: str, farm_id: str) -> dict[str, Any] | No
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT a.id, a.verified_report, a.published_at, a.crop
+            SELECT a.id, a.verified_report, a.published_at, a.crop, a.county,
+                   a.sub_county, a.ward, a.created_at, sr.sampled_at,
+                   officer.display_name AS officer_name
             FROM agronomic_assessments AS a
             JOIN farms AS f ON f.id = a.farm_id
+            LEFT JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
+            LEFT JOIN users AS officer ON officer.id = a.officer_user_id
             WHERE a.farm_id = %s
               AND f.owner_id = %s
               AND a.status = 'verified'
@@ -4302,7 +4364,19 @@ def load_farm_verified_report(user_id: str, farm_id: str) -> dict[str, Any] | No
         row = cursor.fetchone()
         if row is None or not row.get("verified_report"):
             return None
-        return row["verified_report"]
+        report = dict(row["verified_report"])
+        metadata = {
+            "county": row["county"],
+            "subCounty": row["sub_county"],
+            "ward": row["ward"],
+            "assessedAt": row["created_at"].isoformat() if row["created_at"] else None,
+            "sampledAt": row["sampled_at"].isoformat() if row["sampled_at"] else None,
+            "officerName": row["officer_name"],
+        }
+        for key, value in metadata.items():
+            if value is not None and not report.get(key):
+                report[key] = value
+        return report
 
 
 
@@ -5072,7 +5146,7 @@ def load_admin_operational_health(admin_user_id: str) -> dict[str, Any]:
             """
             SELECT ib.id, ib.source_file_name, ib.status, ib.rows_read, ib.rows_imported,
                    ib.rows_rejected, ib.started_at, ib.completed_at,
-                   sd.dataset_key, sd.title AS dataset_title
+                   sd.dataset_key, sd.display_name AS dataset_title
             FROM source_import_batches AS ib
             JOIN source_datasets AS sd ON sd.id = ib.dataset_id
             ORDER BY ib.started_at DESC

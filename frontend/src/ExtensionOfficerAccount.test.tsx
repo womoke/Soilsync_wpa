@@ -416,7 +416,10 @@ describe('ExtensionOfficerAccount component', () => {
     fireEvent.click(claimBtn)
 
     await waitFor(() => {
-      expect(officerApi.claimOfficerVisit).toHaveBeenCalledWith('test-officer-token', 'pool-visit-1')
+      expect(officerApi.claimOfficerVisit).toHaveBeenCalledWith(
+        'test-officer-token',
+        'pool-visit-1',
+      )
       expect(screen.getByText(/Visit request claimed successfully!/i)).toBeInTheDocument()
     })
   })
@@ -436,7 +439,9 @@ describe('ExtensionOfficerAccount component', () => {
 
     await waitFor(() => {
       expect(officerApi.releaseOfficerVisit).toHaveBeenCalledWith('test-officer-token', 'visit-1')
-      expect(screen.getByText(/Visit released back to the unassigned county pool/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/Visit released back to the unassigned county pool/i),
+      ).toBeInTheDocument()
     })
   })
 
@@ -465,9 +470,11 @@ describe('ExtensionOfficerAccount component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
 
     expect(screen.getByText('On-Site Field Data & GPS Capture')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Location is unavailable in this browser.')
 
     fireEvent.change(screen.getByPlaceholderText('e.g. 0.0512'), { target: { value: '0.0512' } })
     fireEvent.change(screen.getByPlaceholderText('e.g. 34.7521'), { target: { value: '34.7521' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. 10'), { target: { value: '8.5' } })
     fireEvent.change(screen.getByPlaceholderText('e.g. 5.8'), { target: { value: '6.2' } })
 
     fireEvent.click(screen.getByRole('button', { name: /Save & Mark Complete/i }))
@@ -486,6 +493,124 @@ describe('ExtensionOfficerAccount component', () => {
         screen.getByText(/Field collection recorded successfully and farm coordinates updated/i),
       ).toBeInTheDocument()
     })
+  })
+
+  it('automatically captures device coordinates and estimated accuracy for field collection', async () => {
+    const originalGeolocation = Object.getOwnPropertyDescriptor(navigator, 'geolocation')
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition: vi.fn((success: PositionCallback) =>
+          success({
+            coords: {
+              latitude: -0.4215,
+              longitude: 36.9512,
+              accuracy: 7.7,
+            } as GeolocationCoordinates,
+            timestamp: Date.now(),
+          } as GeolocationPosition),
+        ),
+      },
+    })
+
+    render(<ExtensionOfficerAccount onBackToDemo={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText('valid-officer-token'), {
+      target: { value: 'test-officer-token' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use Officer Token' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Collect Field Data/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
+
+    expect(await screen.findByText(/estimated accuracy ±7\.7 m/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('Latitude')).toHaveValue(-0.4215)
+    expect(screen.getByLabelText('Longitude')).toHaveValue(36.9512)
+    expect(screen.getByLabelText('Estimated accuracy radius (meters)')).toHaveValue(7.7)
+
+    if (originalGeolocation) {
+      Object.defineProperty(navigator, 'geolocation', originalGeolocation)
+    } else {
+      Reflect.deleteProperty(navigator, 'geolocation')
+    }
+  })
+
+  it('explains denied location permission and leaves manual coordinates available', async () => {
+    const originalGeolocation = Object.getOwnPropertyDescriptor(navigator, 'geolocation')
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition: vi.fn((_success: PositionCallback, failure?: PositionErrorCallback) =>
+          failure?.({
+            code: 1,
+            message: 'Permission denied.',
+            PERMISSION_DENIED: 1,
+            POSITION_UNAVAILABLE: 2,
+            TIMEOUT: 3,
+          } as GeolocationPositionError),
+        ),
+      },
+    })
+
+    render(<ExtensionOfficerAccount onBackToDemo={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText('valid-officer-token'), {
+      target: { value: 'test-officer-token' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use Officer Token' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Collect Field Data/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Location permission was denied.')
+    expect(screen.getByLabelText('Latitude')).toBeEnabled()
+    expect(screen.getByLabelText('Estimated accuracy radius (meters)')).toBeEnabled()
+
+    if (originalGeolocation) {
+      Object.defineProperty(navigator, 'geolocation', originalGeolocation)
+    } else {
+      Reflect.deleteProperty(navigator, 'geolocation')
+    }
+  })
+
+  it('warns when the automatic location fix has coarse accuracy', async () => {
+    const originalGeolocation = Object.getOwnPropertyDescriptor(navigator, 'geolocation')
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition: vi.fn((success: PositionCallback) =>
+          success({
+            coords: {
+              latitude: -0.4215,
+              longitude: 36.9512,
+              accuracy: 120,
+            } as GeolocationCoordinates,
+            timestamp: Date.now(),
+          } as GeolocationPosition),
+        ),
+      },
+    })
+
+    render(<ExtensionOfficerAccount onBackToDemo={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText('valid-officer-token'), {
+      target: { value: 'test-officer-token' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use Officer Token' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Collect Field Data/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
+
+    expect(
+      await screen.findByText(/This is a coarse location fix \(over 50 m\)/i),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Estimated accuracy radius (meters)')).toHaveValue(120)
+
+    if (originalGeolocation) {
+      Object.defineProperty(navigator, 'geolocation', originalGeolocation)
+    } else {
+      Reflect.deleteProperty(navigator, 'geolocation')
+    }
   })
 
   it('allows the officer to sign out and clears the workspace', async () => {
@@ -533,11 +658,21 @@ describe('ExtensionOfficerAccount component', () => {
       expect(screen.getByText(/1. Soil Diagnoses & Indicators/i)).toBeInTheDocument()
       expect(screen.getByText(/2. Agronomic Prescriptions/i)).toBeInTheDocument()
       expect(screen.getByText(/3. Commercial Fertilizer Bridge/i)).toBeInTheDocument()
-      expect(screen.getByText(/AI Agronomic Advisory & Regional Insights Layer/i)).toBeInTheDocument()
-      expect(screen.getByText(/Central Highlands highland soils have high phosphate fixation/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/AI Agronomic Advisory & Regional Insights Layer/i),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(/Central Highlands highland soils have high phosphate fixation/i),
+      ).toBeInTheDocument()
       expect(screen.getByText('Agronomist verification required')).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: /Claim Assessment/i })).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /Verify & Publish Official Report/i })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /Verify & Publish Official Report/i }),
+      ).not.toBeInTheDocument()
     })
+    const dialog = screen.getByRole('dialog', { name: /Rugi Green Farm/i })
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Inspect & Review/i })).toHaveFocus()
   })
 })
