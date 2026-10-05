@@ -226,6 +226,96 @@ def test_admin_provisioning_uses_auth_id_for_role_and_app_id_for_permissions() -
     assert all(row["admin_user_id"] == app_user_id for row in stored["admin_permissions"])
 
 
+def test_admin_provisioning_can_invite_a_new_auth_user_without_password() -> None:
+    script_path = Path(__file__).resolve().parents[1] / "database" / "scripts" / "create_initial_admin.py"
+    spec = importlib.util.spec_from_file_location("create_initial_admin", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    invited_email: list[str] = []
+    inserted_profile: dict[str, object] = {}
+    stored: dict[str, list[dict[str, object]]] = {
+        "user_roles": [],
+        "admin_permissions": [],
+    }
+
+    class Query:
+        def __init__(self, table: str) -> None:
+            self.table = table
+            self.action = "select"
+            self.values: object = None
+            self.filters: dict[str, str] = {}
+
+        def select(self, _columns: str) -> Self:
+            return self
+
+        def eq(self, column: str, value: str) -> Self:
+            self.filters[column] = value
+            return self
+
+        def limit(self, _count: int) -> Self:
+            return self
+
+        def insert(self, values: dict[str, object]) -> Self:
+            self.action = "insert"
+            self.values = values
+            return self
+
+        def upsert(self, values: object, **_kwargs: object) -> Self:
+            self.action = "upsert"
+            self.values = values
+            return self
+
+        def execute(self) -> SimpleNamespace:
+            if self.action == "select":
+                if self.table == "users":
+                    row = inserted_profile
+                    data = [
+                        row for _ in [0]
+                        if all(str(row.get(key)) == value for key, value in self.filters.items())
+                    ]
+                    return SimpleNamespace(data=data)
+                return SimpleNamespace(data=[])
+            if self.action == "insert":
+                inserted_profile.update(self.values)
+                inserted_profile["id"] = "new-app-user-uuid"
+                return SimpleNamespace(data=[inserted_profile])
+            values = self.values if isinstance(self.values, list) else [self.values]
+            stored[self.table].extend(values)
+            return SimpleNamespace(data=[])
+
+    class FakeSupabase:
+        def __init__(self) -> None:
+            self.auth = SimpleNamespace(
+                admin=SimpleNamespace(
+                    list_users=lambda **_kwargs: SimpleNamespace(users=[]),
+                    invite_user_by_email=lambda email: (
+                        invited_email.append(email)
+                        or SimpleNamespace(user=SimpleNamespace(id="new-auth-user-uuid"))
+                    ),
+                )
+            )
+
+        @staticmethod
+        def table(name: str) -> Query:
+            return Query(name)
+
+    auth_id, app_id, permissions = module.provision_admin(
+        FakeSupabase(), "new-admin@example.com", "New Admin", invite=True
+    )
+
+    assert invited_email == ["new-admin@example.com"]
+    assert auth_id == "new-auth-user-uuid"
+    assert app_id == "new-app-user-uuid"
+    assert inserted_profile["role"] == "admin"
+    assert stored["user_roles"] == [
+        {"user_id": "new-auth-user-uuid", "role": "admin", "status": "active"}
+    ]
+    assert permissions == module.default_admin_permissions()
+    assert all(row["admin_user_id"] == app_id for row in stored["admin_permissions"])
+
+
 def test_ensure_admin_default_permissions_grants_missing_permissions(monkeypatch) -> None:
     from app import database
 

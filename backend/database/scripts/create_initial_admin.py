@@ -98,15 +98,26 @@ def upsert_admin_permissions(supabase: object, admin_user_id: str, permissions: 
     return selected_permissions
 
 
-def provision_admin(supabase: object, email: str, name: str, password: str) -> tuple[str, str, list[str]]:
+def provision_admin(
+    supabase: object,
+    email: str,
+    name: str,
+    password: str | None = None,
+    invite: bool = False,
+) -> tuple[str, str, list[str]]:
     auth_user = _find_auth_user(supabase, email)
     if auth_user is None:
-        response = supabase.auth.admin.create_user({
-            "email": email,
-            "password": password,
-            "email_confirm": True,
-            "user_metadata": {"full_name": name},
-        })
+        if invite:
+            response = supabase.auth.admin.invite_user_by_email(email)
+        elif password:
+            response = supabase.auth.admin.create_user({
+                "email": email,
+                "password": password,
+                "email_confirm": True,
+                "user_metadata": {"full_name": name},
+            })
+        else:
+            raise RuntimeError("A password or --invite is required to create a new Auth user.")
         auth_user = getattr(response, "user", None)
         if auth_user is None or not getattr(auth_user, "id", None):
             raise RuntimeError("Supabase did not return a usable Auth user.")
@@ -151,27 +162,39 @@ def main():
     parser = argparse.ArgumentParser(description="Create or repair the initial superadmin account.")
     parser.add_argument("--email", required=True, help="Administrator email address")
     parser.add_argument("--name", default="Super Administrator", help="Administrator display name")
+    parser.add_argument(
+        "--invite",
+        action="store_true",
+        help="Send an email invitation instead of setting a password for a new Auth user",
+    )
 
     args = parser.parse_args()
-
-    password = getpass.getpass("Enter strong administrator password (min 12 chars, upper, lower, num, symbol): ")
-    confirm = getpass.getpass("Confirm administrator password: ")
-    if password != confirm:
-        print("Error: Passwords do not match.", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        validate_admin_password(password)
-    except Exception as exc:
-        print(f"Password Policy Rejection: {exc.detail if hasattr(exc, 'detail') else exc}", file=sys.stderr)
-        sys.exit(1)
 
     print(f"Provisioning superadmin '{args.email}'...")
 
     try:
         supabase = create_supabase_server_client()
+        existing_auth_user = _find_auth_user(supabase, args.email)
+        password = None
+        if existing_auth_user is None and not args.invite:
+            password = getpass.getpass(
+                "Enter strong administrator password (min 12 chars, upper, lower, num, symbol): "
+            )
+            confirm = getpass.getpass("Confirm administrator password: ")
+            if password != confirm:
+                raise RuntimeError("Passwords do not match.")
+            try:
+                validate_admin_password(password)
+            except Exception as exc:
+                detail = exc.detail if hasattr(exc, "detail") else exc
+                raise RuntimeError(f"Password policy rejection: {detail}") from exc
+
         auth_user_id, app_user_id, granted_permissions = provision_admin(
-            supabase, args.email, args.name, password
+            supabase,
+            args.email,
+            args.name,
+            password=password,
+            invite=args.invite,
         )
         if not granted_permissions:
             raise RuntimeError("No administrative permissions were granted for this account.")
