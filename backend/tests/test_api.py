@@ -230,6 +230,99 @@ def test_ensure_admin_default_permissions_does_not_grant_non_admin(monkeypatch) 
     assert "admin_user.is_active = TRUE" in cursor.calls[0]
 
 
+def test_load_admin_permissions_uses_active_role_not_legacy_role(monkeypatch) -> None:
+    from app import database
+
+    class MockCursor:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, query: str, _params: tuple[object, ...] | None = None) -> None:
+            self.queries.append(" ".join(query.lower().split()))
+
+        def fetchone(self) -> dict[str, int]:
+            return {"1": 1}
+
+        def fetchall(self) -> list[dict[str, object]]:
+            return []
+
+    class MockConnection:
+        def __init__(self, cursor: MockCursor) -> None:
+            self.mock_cursor = cursor
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> MockCursor:
+            return self.mock_cursor
+
+    cursor = MockCursor()
+    monkeypatch.setattr(database, "_connect", lambda: MockConnection(cursor))
+
+    assert database.load_admin_permissions("admin-user-1") == []
+
+    permission_query = cursor.queries[-1]
+    assert "join user_roles as admin_role" in permission_query
+    assert "admin_role.user_id = admin_user.supabase_auth_user_id" in permission_query
+    assert "admin_role.role = 'admin'" in permission_query
+    assert "admin_role.status = 'active'" in permission_query
+    assert "admin_user.role = 'admin'" not in permission_query
+
+
+def test_check_admin_permission_uses_active_role_not_legacy_role(monkeypatch) -> None:
+    from app import database
+
+    class MockCursor:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, query: str, _params: tuple[object, ...] | None = None) -> None:
+            self.queries.append(" ".join(query.lower().split()))
+
+        def fetchone(self) -> dict[str, int]:
+            return {"1": 1}
+
+    class MockConnection:
+        def __init__(self, cursor: MockCursor) -> None:
+            self.mock_cursor = cursor
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> MockCursor:
+            return self.mock_cursor
+
+    cursor = MockCursor()
+    monkeypatch.setattr(database, "_connect", lambda: MockConnection(cursor))
+
+    assert database.check_admin_permission("admin-user-1", "manage_accounts")
+
+    permission_query = cursor.queries[-1]
+    assert "join user_roles as admin_role" in permission_query
+    assert "admin_role.user_id = admin_user.supabase_auth_user_id" in permission_query
+    assert "admin_role.role = 'admin'" in permission_query
+    assert "admin_role.status = 'active'" in permission_query
+    assert "admin_user.role = 'admin'" not in permission_query
+
+
 def test_health_check() -> None:
     response = client.get("/health")
     assert response.status_code == 200

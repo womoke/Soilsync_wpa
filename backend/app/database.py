@@ -1955,12 +1955,15 @@ def load_admin_permissions(admin_user_id: str) -> list[dict[str, Any]]:
             """
             SELECT ap.id, ap.permission, ap.granted_by, ap.expires_at, ap.created_at
             FROM admin_permissions AS ap
-            JOIN users ON users.id = ap.admin_user_id
+            JOIN users AS admin_user ON admin_user.id = ap.admin_user_id
+            JOIN user_roles AS admin_role
+              ON admin_role.user_id = admin_user.supabase_auth_user_id
             WHERE ap.admin_user_id = %s
               AND ap.is_active = TRUE
               AND (ap.expires_at IS NULL OR ap.expires_at > NOW())
-              AND users.role = 'admin'
-              AND users.is_active = TRUE
+              AND admin_role.role = 'admin'
+              AND admin_role.status = 'active'
+              AND admin_user.is_active = TRUE
             ORDER BY ap.permission
             """,
             (admin_user_id,),
@@ -1986,13 +1989,16 @@ def check_admin_permission(admin_user_id: str, permission: str) -> bool:
             """
             SELECT 1
             FROM admin_permissions AS ap
-            JOIN users ON users.id = ap.admin_user_id
+            JOIN users AS admin_user ON admin_user.id = ap.admin_user_id
+            JOIN user_roles AS admin_role
+              ON admin_role.user_id = admin_user.supabase_auth_user_id
             WHERE ap.admin_user_id = %s
               AND ap.permission = %s
               AND ap.is_active = TRUE
               AND (ap.expires_at IS NULL OR ap.expires_at > NOW())
-              AND users.role = 'admin'
-              AND users.is_active = TRUE
+              AND admin_role.role = 'admin'
+              AND admin_role.status = 'active'
+              AND admin_user.is_active = TRUE
             LIMIT 1
             """,
             (admin_user_id, permission),
