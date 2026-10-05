@@ -313,6 +313,61 @@ describe('farmer overview prototype', () => {
     expect(screen.getByLabelText('Full name')).toBeInTheDocument()
   })
 
+  it('keeps admins on password reset until they submit their new password', async () => {
+    window.history.replaceState(null, '', '/reset-password?invite=1')
+    const session = {
+      access_token: 'recovery-access-token',
+      user: {
+        id: 'admin-auth-user',
+        user_metadata: { display_name: 'System Administrator' },
+      },
+    }
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({ data: { session }, error: null }),
+      },
+      from: (table: string) => {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          maybeSingle: () =>
+            Promise.resolve({
+              data: {
+                id: 'admin-auth-user',
+                full_name: 'System Administrator',
+                county: null,
+                sub_county: null,
+                ward: null,
+                phone_number: null,
+              },
+              error: null,
+            }),
+          then: (resolve: (value: unknown) => void) =>
+            resolve({
+              data:
+                table === 'user_roles'
+                  ? [{ role: 'admin', status: 'active', approved_at: null }]
+                  : [],
+              error: null,
+            }),
+        }
+        return query
+      },
+    })
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Choose a new password' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: 'System Admin Workspace' })).not.toBeInTheDocument(),
+    )
+    expect(window.location.pathname).toBe('/reset-password')
+    window.history.replaceState(null, '', '/workshop')
+  })
+
   it('opens the farmer sign-in view directly on the farmer route', async () => {
     window.history.replaceState(null, '', '/farmer')
     render(<App />)

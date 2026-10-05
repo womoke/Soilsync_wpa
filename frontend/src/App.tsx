@@ -225,6 +225,7 @@ function AppContent() {
   }
 
   useEffect(() => {
+    if (window.location.pathname.toLowerCase() === '/reset-password') return
     if (session && !isLoading && !error && activeRoles.length > 0 && destination === 'welcome') {
       queueMicrotask(() => {
         const path = typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : ''
