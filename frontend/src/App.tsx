@@ -92,17 +92,17 @@ const readingFields: Array<{
   step: string
   max?: number
 }> = [
-  { key: 'soilPh', label: 'Soil pH', analyte: 'soil_ph', step: '0.1', max: 14 },
-  { key: 'nitrogen', label: 'Total nitrogen', analyte: 'total_nitrogen', step: '0.01' },
-  { key: 'phosphorus', label: 'Olsen phosphorus', analyte: 'olsen_phosphorus', step: '1' },
-  {
-    key: 'potassium',
-    label: 'Exchangeable potassium',
-    analyte: 'exchangeable_potassium',
-    step: '0.01',
-  },
-  { key: 'organicCarbon', label: 'Organic carbon', analyte: 'organic_carbon', step: '0.1' },
-]
+    { key: 'soilPh', label: 'Soil pH', analyte: 'soil_ph', step: '0.1', max: 14 },
+    { key: 'nitrogen', label: 'Total nitrogen', analyte: 'total_nitrogen', step: '0.01' },
+    { key: 'phosphorus', label: 'Olsen phosphorus', analyte: 'olsen_phosphorus', step: '1' },
+    {
+      key: 'potassium',
+      label: 'Exchangeable potassium',
+      analyte: 'exchangeable_potassium',
+      step: '0.01',
+    },
+    { key: 'organicCarbon', label: 'Organic carbon', analyte: 'organic_carbon', step: '0.1' },
+  ]
 
 function readSavedTheme(): Theme {
   try {
@@ -764,8 +764,13 @@ function AppContent() {
     )
   }
 
-  if (isInitializing) {
-    return <SoilSyncLoading label="Loading SoilSync AI…" fullScreen />
+  if (isInitializing || isLoading) {
+    return (
+      <SoilSyncLoading
+        label={isInitializing ? 'Loading SoilSync AI…' : 'Verifying access permissions…'}
+        fullScreen
+      />
+    )
   }
 
   return (
@@ -1072,9 +1077,9 @@ function AppContent() {
                         <MapPin size={15} />
                         {currentFarmer?.ward ?? 'Ward unavailable'}
                         {soilRecord?.location.latitude !== null &&
-                        soilRecord?.location.latitude !== undefined &&
-                        soilRecord.location.longitude !== null &&
-                        soilRecord.location.longitude !== undefined
+                          soilRecord?.location.latitude !== undefined &&
+                          soilRecord.location.longitude !== null &&
+                          soilRecord.location.longitude !== undefined
                           ? ` · ${soilRecord.location.latitude}, ${soilRecord.location.longitude}`
                           : ''}
                       </p>
@@ -1251,7 +1256,7 @@ function AppContent() {
                                   <p>{recommendation.rationale}</p>
                                   <small>
                                     {recommendation.applicationRate !== null &&
-                                    recommendation.applicationUnit
+                                      recommendation.applicationUnit
                                       ? `${recommendation.applicationRate} ${recommendation.applicationUnit}`
                                       : 'Rate pending'}
                                     {' · '}
