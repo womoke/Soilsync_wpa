@@ -182,6 +182,11 @@ def test_ensure_admin_default_permissions_grants_missing_permissions(monkeypatch
         and "is_active = TRUE" in query
         for query, _ in grant_calls
     )
+    eligibility_query = cursor.calls[0][0]
+    assert "admin_role.user_id = admin_user.supabase_auth_user_id" in eligibility_query
+    assert "admin_role.role = 'admin'" in eligibility_query
+    assert "admin_role.status = 'active'" in eligibility_query
+    assert "admin_user.role = 'admin'" not in eligibility_query
 
 
 def test_ensure_admin_default_permissions_does_not_grant_non_admin(monkeypatch) -> None:
@@ -221,8 +226,8 @@ def test_ensure_admin_default_permissions_does_not_grant_non_admin(monkeypatch) 
 
     assert database.ensure_admin_default_permissions("inactive-user") == []
     assert len(cursor.calls) == 1
-    assert "role = 'admin'" in cursor.calls[0]
-    assert "is_active = TRUE" in cursor.calls[0]
+    assert "admin_role.status = 'active'" in cursor.calls[0]
+    assert "admin_user.is_active = TRUE" in cursor.calls[0]
 
 
 def test_health_check() -> None:

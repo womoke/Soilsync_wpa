@@ -1914,10 +1914,16 @@ def ensure_admin_default_permissions(admin_user_id: str) -> list[str]:
         cursor.execute(
             """
             SELECT 1
-            FROM users
-            WHERE id = %s
-              AND role = 'admin'
-              AND is_active = TRUE
+            FROM users AS admin_user
+            WHERE admin_user.id = %s
+              AND admin_user.is_active = TRUE
+              AND EXISTS (
+                  SELECT 1
+                  FROM user_roles AS admin_role
+                  WHERE admin_role.user_id = admin_user.supabase_auth_user_id
+                    AND admin_role.role = 'admin'
+                    AND admin_role.status = 'active'
+              )
             LIMIT 1
             """,
             (admin_user_id,),
