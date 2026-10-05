@@ -635,12 +635,14 @@
 }
 
 .soilsync-loading {
+  position: relative;
   display: flex;
   min-height: 50vh;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 40px 16px;
+  contain: layout paint; 
 }
 
 .soilsync-loading-fullscreen {
@@ -659,9 +661,13 @@
 }
 
 .soilsync-loading-brand {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 12px;
+  transform-origin: center;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   animation: soilsync-loading-pulse 1.8s ease-in-out infinite;
 }
 
@@ -715,11 +721,11 @@
   0%,
   100% {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
   50% {
-    opacity: 0.8;
-    transform: scale(0.965) translateY(-2px);
+    opacity: 0.88;
+    transform: translate3d(0, -2px, 0) scale(0.985);
   }
 }
 
@@ -731,7 +737,7 @@
   }
   50% {
     opacity: 1;
-    transform: scale(1.18);
+    transform: scale(1.16);
   }
 }
 
