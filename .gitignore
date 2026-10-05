@@ -1,0 +1,25 @@
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+
+# Local source data requires separate permission before it can be versioned
+/soil_data_all.csv
+
+# JavaScript build output and dependencies
+node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+frontend/certs/*.pem
+frontend/certs/*.crt
+frontend/certs/*.key
+
+# Python environments, caches, and test output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/

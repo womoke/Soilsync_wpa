@@ -1,0 +1,18 @@
+{
+  "farmers": {},
+  "farms": {},
+  "sessions": {},
+  "sync_drafts": {
+    "draft-1": {
+      "createdAt": "2026-10-01T00:00:00Z",
+      "draftId": "draft-1",
+      "draftType": "soil-reading",
+      "farmId": "farm-000001",
+      "ownerFarmerId": "test-farmer-000001",
+      "payload": {},
+      "status": "draft",
+      "version": 1
+    }
+  },
+  "sync_queue": {}
+}
