@@ -1762,7 +1762,7 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                         textTransform: 'uppercase',
                       }}
                     >
-                      Crop: {item.targetCrop}
+                      Crop: {item.crop}
                     </span>
                     <span
                       className={`sync-status-indicator ${
@@ -2490,7 +2490,7 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
               <div>
                 <div className="eyebrow">KALRO ASSESSMENT PRE-REVIEW</div>
                 <h3 style={{ margin: '0.2rem 0', fontSize: '1.25rem' }}>
-                  {selectedAssessment.farmName || 'Farm Assessment'} — {selectedAssessment.targetCrop.toUpperCase()}
+                  {selectedAssessment.farmName || 'Farm Assessment'} — {selectedAssessment.crop.toUpperCase()}
                 </h3>
                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                   Farmer: {selectedAssessment.farmerName || 'Farmer'} • County: {selectedAssessment.county || 'N/A'} • Stage: {selectedAssessment.reviewStage}
@@ -2549,13 +2549,8 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                       </span>
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
-                      {diag.message}
+                      {diag.interpretation}
                     </div>
-                    {diag.recommendation && (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--primary-color)', fontWeight: 500 }}>
-                        Rec: {diag.recommendation}
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>

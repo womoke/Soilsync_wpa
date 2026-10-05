@@ -129,26 +129,27 @@ const mockAssessments: officerApi.UnverifiedAssessmentItem[] = [
   {
     assessmentId: 'assess-1',
     farmId: 'farm-1',
-    farmerId: 'farmer-1',
     farmName: 'Rugi Green Farm',
     farmerName: 'Wanjiku Farmer',
-    targetCrop: 'maize',
+    readingId: 'reading-1',
+    crop: 'maize',
     county: 'Nyeri',
     status: 'unverified',
     reviewStage: 'review_requested',
     claimingAgronomistId: null,
+    engineVersion: 'kalro-v1',
     engineBaseline: {
+      engineVersion: 'kalro-v1',
       crop: 'maize',
-      county: 'Nyeri',
+      farmAcreage: 2.5,
+      regionalZone: 'Central Highlands',
       diagnoses: [
         {
           analyte: 'soil_ph',
           value: 5.2,
-          unit: 'pH',
+          targetRange: '5.8 - 6.5',
           status: 'warning',
-          severity: 'medium',
-          message: 'Soil is moderately acidic.',
-          recommendation: 'Apply agricultural lime.',
+          interpretation: 'Soil is moderately acidic. Apply agricultural lime.',
         },
       ],
       prescriptions: [
@@ -442,6 +443,9 @@ describe('ExtensionOfficerAccount component', () => {
   it('allows recording on-site field collection and GPS coordinates', async () => {
     vi.mocked(officerApi.recordOfficerFieldCollection).mockResolvedValueOnce({
       visitId: 'visit-1',
+      readingId: 'reading-1',
+      latitude: 0.0512,
+      longitude: 34.7521,
       status: 'completed',
       soilDataCollected: true,
       farmId: 'farm-1',
