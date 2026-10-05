@@ -39,13 +39,42 @@ describe('AuthContext', () => {
     expect(result.current.isInitializing).toBe(true)
 
     // Wait for getSession to resolve
-    await act(async () => {})
+    await act(async () => { })
 
     expect(result.current.isLoading).toBe(false)
     expect(result.current.isInitializing).toBe(false)
     expect(result.current.session).toBeNull()
     expect(result.current.user).toBeNull()
     expect(result.current.activeRoles).toEqual([])
+  })
+
+  it('clears persisted Supabase auth storage on logout to close stale-session loopholes', async () => {
+    localStorage.setItem('sb-demo-auth-token', 'stale-local-token')
+    sessionStorage.setItem('sb-demo-auth-token', 'stale-session-token')
+    sessionStorage.setItem('supabase-auth-token', 'other-token')
+    const mockSupabase = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } }),
+        signOut: vi.fn().mockResolvedValue({ error: null }),
+      },
+      from: vi.fn(),
+    }
+    vi.spyOn(supabaseLib, 'getSupabaseClient').mockReturnValue(mockSupabase as any)
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <AuthProvider>{children}</AuthProvider>
+    )
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await act(async () => {
+      await result.current.signOut()
+    })
+
+    expect(localStorage.getItem('sb-demo-auth-token')).toBeNull()
+    expect(sessionStorage.getItem('sb-demo-auth-token')).toBeNull()
+    expect(sessionStorage.getItem('supabase-auth-token')).toBeNull()
+    expect(mockSupabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
   })
 
   it('does not overwrite a sign-in event with a stale initial signed-out session', async () => {
@@ -176,7 +205,7 @@ describe('AuthContext', () => {
     )
 
     const { result } = renderHook(() => useAuth(), { wrapper })
-    await act(async () => {})
+    await act(async () => { })
 
     let signInResult: { error: Error | null } | undefined
     await act(async () => {
@@ -230,7 +259,7 @@ describe('AuthContext', () => {
     )
     const { result } = renderHook(() => useAuth(), { wrapper })
 
-    await act(async () => {})
+    await act(async () => { })
 
     expect(result.current.activeRoles).toEqual([])
     expect(result.current.allRoles).toEqual([])
@@ -256,7 +285,7 @@ describe('AuthContext', () => {
     )
 
     const { result } = renderHook(() => useAuth(), { wrapper })
-    await act(async () => {})
+    await act(async () => { })
 
     let signInResult: { error: Error | null } | undefined
     await act(async () => {
@@ -283,7 +312,7 @@ describe('AuthContext', () => {
     )
 
     const { result } = renderHook(() => useAuth(), { wrapper })
-    await act(async () => {})
+    await act(async () => { })
 
     let signUpResult: { error: Error | null } | undefined
     await act(async () => {
@@ -315,7 +344,7 @@ describe('AuthContext', () => {
     )
 
     const { result } = renderHook(() => useAuth(), { wrapper })
-    await act(async () => {})
+    await act(async () => { })
 
     await act(async () => {
       await result.current.signOut()

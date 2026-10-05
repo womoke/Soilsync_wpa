@@ -71,6 +71,20 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     setActiveRoles([])
   }, [])
 
+  const clearPersistedAuthState = useCallback(() => {
+    try {
+      for (const storage of [window.localStorage, window.sessionStorage]) {
+        for (const key of Array.from({ length: storage.length }, (_, index) => storage.key(index))) {
+          if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+            storage.removeItem(key)
+          }
+        }
+      }
+    } catch {
+      // Storage may be inaccessible in restricted contexts; fail closed without breaking logout.
+    }
+  }, [])
+
   const loadUserData = useCallback(
     async (currentUser: User) => {
       if (!supabase) return 'failed' as const
@@ -126,13 +140,13 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         setProfile(
           profileData
             ? {
-                id: profileData.id,
-                fullName: profileData.full_name,
-                county: profileData.county,
-                subCounty: profileData.sub_county,
-                ward: profileData.ward,
-                phoneNumber: profileData.phone_number,
-              }
+              id: profileData.id,
+              fullName: profileData.full_name,
+              county: profileData.county,
+              subCounty: profileData.sub_county,
+              ward: profileData.ward,
+              phoneNumber: profileData.phone_number,
+            }
             : null,
         )
         setAllRoles(roles)
@@ -368,12 +382,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     setUser(null)
     clearUserData()
     setError(null)
-    // Clear any cached credentials from local storage
-    try {
-      window.sessionStorage.clear()
-    } catch {
-      // Continue gracefully
-    }
+    clearPersistedAuthState()
   }
 
   const value: AuthContextValue = {

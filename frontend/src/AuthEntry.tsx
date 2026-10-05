@@ -73,8 +73,8 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
   const authCallbackTokens = useRef(readAuthCallbackTokens())
   const [mode, setMode] = useState<AuthMode>(() =>
     window.location.pathname.toLowerCase() === '/reset-password' ||
-    hasInvitationCallback() ||
-    hasClaimActivationCallback()
+      hasInvitationCallback() ||
+      hasClaimActivationCallback()
       ? 'update-password'
       : 'sign-in',
   )
@@ -90,6 +90,13 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
+  const clearFormInputs = useCallback(() => {
+    setDisplayName('')
+    setEmail('')
+    setPassword('')
+    setConsentAccepted(false)
+  }, [])
+
   useEffect(() => {
     onAuthenticatedRef.current = onAuthenticated
   }, [onAuthenticated])
@@ -102,6 +109,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
     ) => {
       setIsResolvingAccount(true)
       try {
+        clearFormInputs()
         const profile = await linkAuthenticatedAccount(session.access_token, name)
         if (canNavigate()) onAuthenticatedRef.current(destinationByRole[profile.role])
       } catch (linkError) {
@@ -119,7 +127,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
         setIsResolvingAccount(false)
       }
     },
-    [supabase],
+    [clearFormInputs, supabase],
   )
 
   useEffect(() => {
@@ -210,6 +218,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
           setIsInvitationActivation(false)
         }
         if (!refreshedSessionData.session) {
+          clearFormInputs()
           setMode('sign-in')
           setMessage('Password updated. Sign in with your new password.')
         } else {
@@ -228,6 +237,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
         if (data.session) {
           await finishSignIn(data.session, displayName.trim())
         } else {
+          clearFormInputs()
           setMessage('Account created. Sign in to continue.')
         }
       } else {
@@ -283,9 +293,9 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
           {mode === 'reset-request'
             ? 'Enter your account email and we will send instructions to reset your password.'
             : mode === 'update-password'
-                ? isInvitationActivation
-                  ? 'Choose your own password to activate your administrator-provisioned account.'
-                  : 'Enter a new password for your SoilSync AI account.'
+              ? isInvitationActivation
+                ? 'Choose your own password to activate your administrator-provisioned account.'
+                : 'Enter a new password for your SoilSync AI account.'
               : 'Sign in with your email and password. Your approved account profile determines your workspace.'}
         </p>
         {!supabase && (
@@ -310,7 +320,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
               <span>Email address</span>
               <input
                 type="email"
-                autoComplete="email"
+                autoComplete="off"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 required
@@ -322,7 +332,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
               <span>{mode === 'update-password' ? 'New password' : 'Password'}</span>
               <input
                 type="password"
-                autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'}
+                autoComplete={mode === 'sign-in' ? 'off' : 'new-password'}
                 minLength={8}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -398,6 +408,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
             className="text-button auth-entry-forgot"
             type="button"
             onClick={() => {
+              clearFormInputs()
               setMode('reset-request')
               setError('')
               setMessage('')
@@ -413,6 +424,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
               className="text-button"
               type="button"
               onClick={() => {
+                clearFormInputs()
                 setMode((current) => (current === 'sign-in' ? 'register' : 'sign-in'))
                 setError('')
                 setMessage('')
@@ -429,6 +441,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
               className="text-button"
               type="button"
               onClick={() => {
+                clearFormInputs()
                 setMode('sign-in')
                 setError('')
                 setMessage('')
