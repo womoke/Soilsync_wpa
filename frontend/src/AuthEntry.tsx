@@ -13,8 +13,13 @@ interface AuthEntryProps {
 type AuthMode = 'sign-in' | 'register' | 'reset-request' | 'update-password'
 
 function hasInvitationCallback(): boolean {
-  const callbackParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-  return callbackParams.get('type') === 'invite'
+  const url = new URL(window.location.href)
+  const callbackParams = new URLSearchParams(url.hash.replace(/^#/, ''))
+  return (
+    url.searchParams.get('invite') === '1' ||
+    url.searchParams.get('type') === 'invite' ||
+    callbackParams.get('type') === 'invite'
+  )
 }
 
 function hasClaimActivationCallback(): boolean {
@@ -151,7 +156,13 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
         if (resetError) throw resetError
         setMessage('If an account exists for that email, a password reset link has been sent.')
       } else if (mode === 'update-password') {
-        const { data: sessionData } = await supabase.auth.getSession()
+        const { data: sessionData, error: currentSessionError } = await supabase.auth.getSession()
+        if (currentSessionError) throw currentSessionError
+        if (!sessionData.session) {
+          throw new Error(
+            'This password setup link has no active authentication session. Request a new invitation and open its link in the same browser.',
+          )
+        }
         const userRoles = (sessionData?.session?.user?.user_metadata?.roles as string[] | undefined) || []
         const isAdmin = userRoles.includes('admin')
         const validation = validatePasswordPolicy(password, isAdmin ? 'admin' : undefined)

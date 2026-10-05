@@ -234,6 +234,7 @@ def test_admin_provisioning_can_invite_a_new_auth_user_without_password() -> Non
     spec.loader.exec_module(module)
 
     invited_email: list[str] = []
+    invitation_options: list[dict[str, str]] = []
     inserted_profile: dict[str, object] = {}
     stored: dict[str, list[dict[str, object]]] = {
         "user_roles": [],
@@ -290,8 +291,9 @@ def test_admin_provisioning_can_invite_a_new_auth_user_without_password() -> Non
             self.auth = SimpleNamespace(
                 admin=SimpleNamespace(
                     list_users=lambda **_kwargs: SimpleNamespace(users=[]),
-                    invite_user_by_email=lambda email: (
+                    invite_user_by_email=lambda email, options: (
                         invited_email.append(email)
+                        or invitation_options.append(options)
                         or SimpleNamespace(user=SimpleNamespace(id="new-auth-user-uuid"))
                     ),
                 )
@@ -306,6 +308,9 @@ def test_admin_provisioning_can_invite_a_new_auth_user_without_password() -> Non
     )
 
     assert invited_email == ["new-admin@example.com"]
+    assert invitation_options == [
+        {"redirect_to": "https://soilsync-wpa.vercel.app/reset-password?invite=1"}
+    ]
     assert auth_id == "new-auth-user-uuid"
     assert app_id == "new-app-user-uuid"
     assert inserted_profile["role"] == "admin"

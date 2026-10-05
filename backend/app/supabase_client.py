@@ -67,6 +67,13 @@ class SupabaseInvitationRequiredError(PermissionError):
     pass
 
 
+def get_admin_invite_redirect_url() -> str:
+    return os.getenv(
+        "AUTH_INVITE_REDIRECT_URL",
+        "https://soilsync-wpa.vercel.app/reset-password?invite=1",
+    ).strip()
+
+
 def get_verified_supabase_user(access_token: str) -> Any:
     try:
         response = create_supabase_public_client().auth.get_user(access_token)
@@ -279,7 +286,10 @@ def revoke_supabase_session(access_token: str) -> None:
 def invite_user_by_email(email: str) -> dict[str, Any]:
     try:
         client = create_supabase_server_client()
-        response = client.auth.admin.invite_user_by_email(email)
+        response = client.auth.admin.invite_user_by_email(
+            email,
+            options={"redirect_to": get_admin_invite_redirect_url()},
+        )
         user = getattr(response, "user", None)
         if user is None or not getattr(user, "id", None):
             raise SupabaseIdentityUnavailableError(

@@ -1,13 +1,12 @@
-from types import SimpleNamespace
-from typing import Any
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-
 
 client = TestClient(app)
 
@@ -59,6 +58,40 @@ def mock_supabase_auth(monkeypatch):
 
     monkeypatch.setattr(main_module, "get_verified_supabase_user", mock_get_user)
     return users
+
+
+def test_admin_invitation_uses_password_setup_redirect(monkeypatch):
+    from app import supabase_client
+
+    calls: list[tuple[str, dict[str, str]]] = []
+    monkeypatch.setenv(
+        "AUTH_INVITE_REDIRECT_URL",
+        "https://soilsync-wpa.vercel.app/reset-password?invite=1",
+    )
+    monkeypatch.setattr(
+        supabase_client,
+        "create_supabase_server_client",
+        lambda: SimpleNamespace(
+            auth=SimpleNamespace(
+                admin=SimpleNamespace(
+                    invite_user_by_email=lambda email, options: (
+                        calls.append((email, options))
+                        or SimpleNamespace(user=SimpleNamespace(id="auth-user-1"))
+                    )
+                )
+            )
+        ),
+    )
+
+    result = supabase_client.invite_user_by_email("new-admin@example.com")
+
+    assert result == {"id": "auth-user-1"}
+    assert calls == [
+        (
+            "new-admin@example.com",
+            {"redirect_to": "https://soilsync-wpa.vercel.app/reset-password?invite=1"},
+        )
+    ]
 
 
 def test_admin_invite_agronomist_success(mock_supabase_auth, monkeypatch):

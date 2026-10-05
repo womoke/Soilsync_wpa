@@ -18,7 +18,7 @@ from typing import Any, Iterable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from app.dependencies import validate_admin_password
-from app.supabase_client import create_supabase_server_client
+from app.supabase_client import create_supabase_server_client, get_admin_invite_redirect_url
 
 DEFAULT_ADMIN_PERMISSIONS = (
     "view_audit_log",
@@ -108,7 +108,10 @@ def provision_admin(
     auth_user = _find_auth_user(supabase, email)
     if auth_user is None:
         if invite:
-            response = supabase.auth.admin.invite_user_by_email(email)
+            response = supabase.auth.admin.invite_user_by_email(
+                email,
+                options={"redirect_to": get_admin_invite_redirect_url()},
+            )
         elif password:
             response = supabase.auth.admin.create_user({
                 "email": email,

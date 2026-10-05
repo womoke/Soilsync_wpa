@@ -242,6 +242,35 @@ describe('AuthEntry', () => {
     window.history.replaceState(null, '', '/')
   })
 
+  it('requires a live invite session before allowing a new password', async () => {
+    window.history.replaceState(null, '', '/reset-password?invite=1')
+    const updateUser = vi.fn()
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        updateUser,
+      },
+    })
+
+    render(<AuthEntry onAuthenticated={vi.fn()} />)
+    expect(
+      screen.getByText(/Choose your own password to activate your administrator-provisioned account/),
+    ).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This password setup link has no active authentication session.',
+    )
+    expect(updateUser).not.toHaveBeenCalled()
+    window.history.replaceState(null, '', '/')
+  })
+
   it('claims an officer-registered farmer after setting a password from a reminder link', async () => {
     window.history.replaceState(
       null,
