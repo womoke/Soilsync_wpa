@@ -1896,10 +1896,51 @@ def load_officer_farm_readings(
 # Admin – least-privilege permissions and audit
 # ---------------------------------------------------------------------------
 
+DEFAULT_ADMIN_PERMISSIONS = (
+    "view_audit_log",
+    "manage_accounts",
+    "manage_roles",
+    "manage_officer_assignments",
+    "manage_dealer_approvals",
+    "support_access",
+    "manage_settings",
+)
+
+
+@_database_errors_as_unavailable
+def ensure_admin_default_permissions(admin_user_id: str) -> list[str]:
+    """Repair the default minimum permission set for any active admin account."""
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM users
+            WHERE id = %s
+              AND role = 'admin'
+              AND is_active = TRUE
+            LIMIT 1
+            """,
+            (admin_user_id,),
+        )
+        if cursor.fetchone() is None:
+            return []
+
+        for permission in DEFAULT_ADMIN_PERMISSIONS:
+            cursor.execute(
+                """
+                INSERT INTO admin_permissions (admin_user_id, permission, granted_by, expires_at, is_active)
+                VALUES (%s, %s, %s, NULL, TRUE)
+                ON CONFLICT (admin_user_id, permission) DO NOTHING
+                """,
+                (admin_user_id, permission, admin_user_id),
+            )
+        return list(DEFAULT_ADMIN_PERMISSIONS)
+
 
 @_database_errors_as_unavailable
 def load_admin_permissions(admin_user_id: str) -> list[dict[str, Any]]:
     """Load active, non-expired permissions for an admin user."""
+    ensure_admin_default_permissions(admin_user_id)
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
@@ -1930,6 +1971,7 @@ def load_admin_permissions(admin_user_id: str) -> list[dict[str, Any]]:
 @_database_errors_as_unavailable
 def check_admin_permission(admin_user_id: str, permission: str) -> bool:
     """Check whether the admin has a specific active permission."""
+    ensure_admin_default_permissions(admin_user_id)
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """

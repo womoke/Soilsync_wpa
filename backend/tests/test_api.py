@@ -133,6 +133,93 @@ def test_default_admin_permission_set_contains_account_management() -> None:
     assert permissions[0] == "view_audit_log"
 
 
+def test_ensure_admin_default_permissions_grants_missing_permissions(monkeypatch) -> None:
+    from app import database
+
+    class MockCursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...] | None]] = []
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, query: str, params: tuple[object, ...] | None = None) -> None:
+            self.calls.append((query, params))
+
+        def fetchone(self) -> dict[str, int]:
+            return {"1": 1}
+
+    class MockConnection:
+        def __init__(self, cursor: MockCursor) -> None:
+            self.mock_cursor = cursor
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> MockCursor:
+            return self.mock_cursor
+
+    cursor = MockCursor()
+    monkeypatch.setattr(database, "_connect", lambda: MockConnection(cursor))
+
+    granted = database.ensure_admin_default_permissions("admin-user-1")
+
+    assert granted == list(database.DEFAULT_ADMIN_PERMISSIONS)
+    grant_calls = cursor.calls[1:]
+    assert len(grant_calls) == len(database.DEFAULT_ADMIN_PERMISSIONS)
+    assert [params[1] for _, params in grant_calls if params is not None] == list(
+        database.DEFAULT_ADMIN_PERMISSIONS
+    )
+    assert all("ON CONFLICT (admin_user_id, permission) DO NOTHING" in query for query, _ in grant_calls)
+
+
+def test_ensure_admin_default_permissions_does_not_grant_non_admin(monkeypatch) -> None:
+    from app import database
+
+    class MockCursor:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, query: str, _params: tuple[object, ...] | None = None) -> None:
+            self.calls.append(query)
+
+        def fetchone(self) -> None:
+            return None
+
+    class MockConnection:
+        def __init__(self, cursor: MockCursor) -> None:
+            self.mock_cursor = cursor
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> MockCursor:
+            return self.mock_cursor
+
+    cursor = MockCursor()
+    monkeypatch.setattr(database, "_connect", lambda: MockConnection(cursor))
+
+    assert database.ensure_admin_default_permissions("inactive-user") == []
+    assert len(cursor.calls) == 1
+    assert "role = 'admin'" in cursor.calls[0]
+    assert "is_active = TRUE" in cursor.calls[0]
+
+
 def test_health_check() -> None:
     response = client.get("/health")
     assert response.status_code == 200
