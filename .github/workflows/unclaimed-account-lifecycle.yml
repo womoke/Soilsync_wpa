@@ -1,4 +1,4 @@
-name: Unclaimed farmer account lifecycle
+name: # Rechecked after enabling GitHub Actions
 
 on:
   schedule:
