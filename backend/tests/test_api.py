@@ -133,6 +133,99 @@ def test_default_admin_permission_set_contains_account_management() -> None:
     assert permissions[0] == "view_audit_log"
 
 
+def test_admin_provisioning_uses_auth_id_for_role_and_app_id_for_permissions() -> None:
+    script_path = Path(__file__).resolve().parents[1] / "database" / "scripts" / "create_initial_admin.py"
+    spec = importlib.util.spec_from_file_location("create_initial_admin", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    auth_user_id = "auth-user-uuid"
+    app_user_id = "app-user-uuid"
+    stored = {
+        "users": [{"id": app_user_id, "supabase_auth_user_id": auth_user_id}],
+        "user_roles": [],
+        "admin_permissions": [],
+    }
+    updates: list[tuple[str, dict[str, object]]] = []
+
+    class Query:
+        def __init__(self, table: str) -> None:
+            self.table = table
+            self.filters: dict[str, str] = {}
+            self.values: object = None
+            self.action = "select"
+
+        def select(self, _columns: str) -> Self:
+            self.action = "select"
+            return self
+
+        def eq(self, column: str, value: str) -> Self:
+            self.filters[column] = value
+            return self
+
+        def limit(self, _count: int) -> Self:
+            return self
+
+        def update(self, values: dict[str, object]) -> Self:
+            self.action = "update"
+            self.values = values
+            return self
+
+        def upsert(self, values: object, **_kwargs: object) -> Self:
+            self.action = "upsert"
+            self.values = values
+            return self
+
+        def execute(self) -> SimpleNamespace:
+            if self.action == "select":
+                rows = stored[self.table]
+                return SimpleNamespace(
+                    data=[
+                        row for row in rows
+                        if all(str(row.get(key)) == value for key, value in self.filters.items())
+                    ]
+                )
+            updates.append((self.table, self.values if isinstance(self.values, dict) else {}))
+            if self.action == "upsert":
+                stored[self.table].extend(self.values if isinstance(self.values, list) else [self.values])
+            return SimpleNamespace(data=[])
+
+    class FakeSupabase:
+        auth = SimpleNamespace(
+            admin=SimpleNamespace(
+                list_users=lambda **_kwargs: SimpleNamespace(
+                    users=[SimpleNamespace(id=auth_user_id, email="new-admin@example.com")]
+                )
+            )
+        )
+
+        @staticmethod
+        def table(name: str) -> Query:
+            return Query(name)
+
+    returned_auth_id, returned_app_id, permissions = module.provision_admin(
+        FakeSupabase(), "new-admin@example.com", "New Admin", "Strong-Password1!"
+    )
+
+    assert returned_auth_id == auth_user_id
+    assert returned_app_id == app_user_id
+    assert permissions == module.default_admin_permissions()
+    assert updates[0] == (
+        "users",
+        {
+            "supabase_auth_user_id": auth_user_id,
+            "display_name": "New Admin",
+            "role": "admin",
+            "is_active": True,
+        },
+    )
+    assert stored["user_roles"] == [
+        {"user_id": auth_user_id, "role": "admin", "status": "active"}
+    ]
+    assert all(row["admin_user_id"] == app_user_id for row in stored["admin_permissions"])
+
+
 def test_ensure_admin_default_permissions_grants_missing_permissions(monkeypatch) -> None:
     from app import database
 
