@@ -71,6 +71,7 @@ export default function AgronomistAccount({ onBackToDemo }: { onBackToDemo: () =
   const [busyAssessmentId, setBusyAssessmentId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
 
   const refreshAssessments = useCallback(async () => {
     if (!accessToken) {
@@ -83,7 +84,9 @@ export default function AgronomistAccount({ onBackToDemo }: { onBackToDemo: () =
 
     setIsLoading(true)
     try {
-      setAssessments(await getUnverifiedAssessments(accessToken))
+      const items = await getUnverifiedAssessments(accessToken)
+      setAssessments(items)
+      setLastRefreshed(new Date().toISOString())
       setError('')
     } catch (loadError) {
       setError(getErrorMessage(loadError))
@@ -273,25 +276,46 @@ export default function AgronomistAccount({ onBackToDemo }: { onBackToDemo: () =
       {hasLoaded && (
         <section aria-label="Assessment queue metrics">
           <h2>Queue overview</h2>
-          {[
-            { label: 'In your review', value: claimedByMeCount },
-            { label: 'Ready to claim', value: availableCount },
-            { label: 'Assessments in queue', value: assessments.length },
-          ].map((metric) => (
-            <p key={metric.label}>
-              <strong>{metric.label}:</strong> {metric.value}
-            </p>
-          ))}
+          <div className="queue-metrics-grid">
+            {[
+              { label: 'In your review', value: claimedByMeCount },
+              { label: 'Ready to claim', value: availableCount },
+              { label: 'Assessments in queue', value: assessments.length },
+            ].map((metric) => (
+              <div className="metric-card" key={metric.label}>
+                <span className="metric-label">{metric.label}</span>
+                <span className="metric-value">{metric.value}</span>
+              </div>
+            ))}
+          </div>
+          {lastRefreshed && <p className="timestamp-chip">Last refreshed: {new Date(lastRefreshed).toLocaleString()}</p>}
         </section>
       )}
 
       {!hasLoaded && isLoading ? (
         <SoilSyncLoading label="Loading assessment review pool…" compact />
       ) : !isLoading && assessments.length === 0 ? (
-        <p className="history-empty">
-          No unverified assessments are currently available in your approved county review pool. New
-          officer-submitted assessments will appear here for review.
-        </p>
+        <div className="empty-state">
+          <p>
+            No unverified assessments are currently available in your approved county review pool.
+            Field collections performed by officers will generate assessments for agronomic review.
+          </p>
+          <p style={{ color: 'var(--muted)' }}>
+            Try refreshing the queue or check your assigned jurisdictions — if there should be
+            assessments, confirm that officers have marked visits as completed and that sample
+            collections succeeded.
+          </p>
+          <div className="empty-state-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void refreshAssessments()}
+              disabled={isLoading}
+            >
+              <RefreshCw size={14} /> Refresh assessments
+            </button>
+          </div>
+        </div>
       ) : assessments.length > 0 ? (
         <div className="assessment-list" style={{ display: 'grid', gap: '1rem' }}>
           {assessments.map((assessment) => {
@@ -329,7 +353,7 @@ export default function AgronomistAccount({ onBackToDemo }: { onBackToDemo: () =
 
                 <p>
                   Assessment status: {assessment.status}; review stage: {assessment.reviewStage}.{' '}
-                  Engine: {assessment.engineVersion}.
+                  Engine: {assessment.engineVersion ?? 'Not recorded'}.
                 </p>
 
                 <p>
@@ -339,9 +363,18 @@ export default function AgronomistAccount({ onBackToDemo }: { onBackToDemo: () =
                   <strong>Assessment created:</strong> {formatDate(assessment.createdAt)}.{' '}
                   <strong>Extension officer:</strong> {assessment.officerName || 'Not recorded'}.{' '}
                   <strong>GPS:</strong>{' '}
-                  {assessment.latitude != null && assessment.longitude != null
-                    ? `${assessment.latitude.toFixed(5)}, ${assessment.longitude.toFixed(5)} (±${assessment.locationUncertaintyM ?? 'unknown'} m)`
-                    : 'Not recorded'}
+                  {assessment.latitude != null && assessment.longitude != null ? (
+                    <>
+                      {assessment.latitude.toFixed(5)}, {assessment.longitude.toFixed(5)}
+                      {assessment.locationUncertaintyM != null ? (
+                        <> (±{Number(assessment.locationUncertaintyM).toFixed(1)} m)</>
+                      ) : (
+                        <> (accuracy not recorded)</>
+                      )}
+                    </>
+                  ) : (
+                    'Not recorded'
+                  )}
                 </p>
 
                 {assessment.engineBaseline.diagnoses.length > 0 && (

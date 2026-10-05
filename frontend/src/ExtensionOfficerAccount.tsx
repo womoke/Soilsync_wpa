@@ -127,6 +127,9 @@ export default function ExtensionOfficerAccount({
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'locating' | 'captured' | 'error'>('idle')
   const [gpsError, setGpsError] = useState('')
   const [gpsCapturedAt, setGpsCapturedAt] = useState<string | null>(null)
+  // Explicit farmer consent for recording exact GPS coordinates and a short note
+  const [hasLocationConsent, setHasLocationConsent] = useState(false)
+  const [locationConsentNotes, setLocationConsentNotes] = useState('')
   const [collectionPh, setCollectionPh] = useState('6.2')
   const [collectionOrganicCarbon, setCollectionOrganicCarbon] = useState('1.8')
   const [collectionNitrogen, setCollectionNitrogen] = useState('0.18')
@@ -425,7 +428,7 @@ export default function ExtensionOfficerAccount({
       if (token) {
         void getOfficerVisitPool(token)
           .then(setVisitPool)
-          .catch(() => {})
+          .catch(() => { })
       }
     } finally {
       setIsWorking(false)
@@ -455,6 +458,14 @@ export default function ExtensionOfficerAccount({
     const lat = parseFloat(collectionLat)
     const lng = parseFloat(collectionLng)
     const accuracy = Number.parseFloat(collectionUncertainty)
+
+    if (!hasLocationConsent || !locationConsentNotes.trim()) {
+      setError(
+        'Coordinates can only be stored with documented farmer consent. Check the consent box and add a brief note before saving.',
+      )
+      return
+    }
+
     if (
       !Number.isFinite(lat) ||
       !Number.isFinite(lng) ||
@@ -466,6 +477,7 @@ export default function ExtensionOfficerAccount({
       setError('Enter valid latitude and longitude coordinates.')
       return
     }
+
     if (!Number.isFinite(accuracy) || accuracy < 0) {
       setError('Enter the GPS accuracy radius in meters, or capture a device location.')
       return
@@ -528,7 +540,7 @@ export default function ExtensionOfficerAccount({
       if (token) {
         void getUnverifiedAssessments(token)
           .then(setAssessments)
-          .catch(() => {})
+          .catch(() => { })
       }
       setMessage(res.message || 'Field data and GPS coordinates recorded successfully.')
     } catch (err) {
@@ -609,20 +621,20 @@ export default function ExtensionOfficerAccount({
         prev.map((a) =>
           a.assessmentId === selectedAssessment.assessmentId
             ? {
-                ...a,
-                officerEdits: res.officerEdits as typeof a.officerEdits,
-                agronomistEdits: res.agronomistEdits as typeof a.agronomistEdits,
-              }
+              ...a,
+              officerEdits: res.officerEdits as typeof a.officerEdits,
+              agronomistEdits: res.agronomistEdits as typeof a.agronomistEdits,
+            }
             : a,
         ),
       )
       setSelectedAssessment((prev) =>
         prev
           ? {
-              ...prev,
-              officerEdits: res.officerEdits as typeof prev.officerEdits,
-              agronomistEdits: res.agronomistEdits as typeof prev.agronomistEdits,
-            }
+            ...prev,
+            officerEdits: res.officerEdits as typeof prev.officerEdits,
+            agronomistEdits: res.agronomistEdits as typeof prev.agronomistEdits,
+          }
           : null,
       )
       setAssessmentNotes('')
@@ -1117,8 +1129,8 @@ export default function ExtensionOfficerAccount({
                   <div>
                     <strong style={{ fontSize: '1rem', display: 'block' }}>{farmer.name}</strong>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      Farm: {farmer.farmName ?? 'Unnamed'} • {farmer.ward ?? 'Unknown Ward'},{' '}
-                      {farmer.county ?? ''}
+                      Farm: {farmer.farmName || 'Not recorded'} • {farmer.ward || 'Not recorded'},{' '}
+                      {farmer.county || 'Not recorded'}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -1174,7 +1186,7 @@ export default function ExtensionOfficerAccount({
                 >
                   <div>
                     <strong style={{ fontSize: '1rem', display: 'block' }}>
-                      {item.fullName || 'Unnamed Farmer'}
+                      {item.fullName || 'Not recorded'}
                     </strong>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                       {item.email}
@@ -1186,8 +1198,8 @@ export default function ExtensionOfficerAccount({
                         marginTop: '0.2rem',
                       }}
                     >
-                      Farm: <strong>{item.initialFarmName || 'Unnamed Farm'}</strong> •{' '}
-                      {item.county || 'Unassigned'}
+                      Farm: <strong>{item.initialFarmName || 'Not recorded'}</strong> •{' '}
+                      {item.county || 'Not recorded'}
                     </div>
                   </div>
                   <div
@@ -1507,7 +1519,9 @@ export default function ExtensionOfficerAccount({
                         setGpsStatus('idle')
                         setGpsError('')
                         setGpsCapturedAt(null)
-                        captureCurrentLocation()
+                        // Require explicit farmer consent before attempting to capture or save exact coordinates.
+                        setHasLocationConsent(false)
+                        setLocationConsentNotes('')
                         setCollectionPh('')
                         setCollectionOrganicCarbon('')
                         setCollectionNitrogen('')
@@ -1841,9 +1855,8 @@ export default function ExtensionOfficerAccount({
                       Crop: {item.crop}
                     </span>
                     <span
-                      className={`sync-status-indicator ${
-                        item.reviewStage === 'claimed' ? 'is-synced' : 'is-draft'
-                      }`}
+                      className={`sync-status-indicator ${item.reviewStage === 'claimed' ? 'is-synced' : 'is-draft'
+                        }`}
                       style={{ fontSize: '0.75rem' }}
                     >
                       {item.reviewStage === 'claimed' ? 'Claimed by Agronomist' : 'Awaiting Review'}
@@ -2292,16 +2305,41 @@ export default function ExtensionOfficerAccount({
                     color: 'var(--text-secondary)',
                   }}
                 >
-                  Your browser will ask permission to use this device&apos;s location when the form
-                  opens. Accuracy is the device&apos;s estimated horizontal radius, not a guarantee.
+                  Your browser will ask permission to use this device's location when you choose to
+                  capture it. Accuracy is the device's estimated horizontal radius, not a guarantee.
                   For a better fix, enable device location, move outdoors with a clear view of the
-                  sky, and wait briefly before retrying.
+                  sky, and wait briefly before retrying. Document farmer consent below before saving
+                  exact coordinates.
                 </p>
+
+                <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={hasLocationConsent}
+                    onChange={(e) => setHasLocationConsent(e.target.checked)}
+                  />
+                  <span style={{ fontSize: '0.85rem' }}>
+                    I confirm the farmer has explicitly consented to recording exact GPS
+                    coordinates for this visit.
+                  </span>
+                </label>
+
+                <label className="auth-field" style={{ margin: 0, marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.8rem' }}>Consent notes (brief, required to save exact GPS)</span>
+                  <input
+                    type="text"
+                    value={locationConsentNotes}
+                    placeholder="e.g. Farmer verbally agreed to ward-level GPS for routing"
+                    onChange={(e) => setLocationConsentNotes(e.target.value)}
+                    style={{ padding: '0.4rem', borderRadius: '0.25rem', border: '1px solid var(--border-color)' }}
+                  />
+                </label>
+
                 <button
                   className="secondary-button"
                   type="button"
-                  onClick={captureCurrentLocation}
-                  disabled={gpsStatus === 'locating'}
+                  onClick={() => captureCurrentLocation()}
+                  disabled={gpsStatus === 'locating' || !hasLocationConsent}
                 >
                   <MapPin size={14} />
                   {gpsStatus === 'locating' ? 'Getting location…' : 'Use current location'}
@@ -2547,7 +2585,11 @@ export default function ExtensionOfficerAccount({
                 >
                   Cancel
                 </button>
-                <button className="primary-button" type="submit" disabled={isWorking}>
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={isWorking || !hasLocationConsent || !locationConsentNotes.trim()}
+                >
                   {isWorking ? 'Recording…' : 'Save & Mark Complete'}
                 </button>
               </div>
@@ -2612,8 +2654,8 @@ export default function ExtensionOfficerAccount({
                   {selectedAssessment.crop.toUpperCase()}
                 </h3>
                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  Farmer: {selectedAssessment.farmerName || 'Farmer'} • County:{' '}
-                  {selectedAssessment.county || 'N/A'} • Stage: {selectedAssessment.reviewStage}
+                  Farmer: {selectedAssessment.farmerName || 'Not recorded'} • County:{' '}
+                  {selectedAssessment.county || 'Not recorded'} • Stage: {selectedAssessment.reviewStage}
                 </p>
               </div>
               <button
@@ -2904,8 +2946,8 @@ export default function ExtensionOfficerAccount({
                 Collaborative Review Thread
               </h4>
               {(!selectedAssessment.officerEdits || selectedAssessment.officerEdits.length === 0) &&
-              (!selectedAssessment.agronomistEdits ||
-                selectedAssessment.agronomistEdits.length === 0) ? (
+                (!selectedAssessment.agronomistEdits ||
+                  selectedAssessment.agronomistEdits.length === 0) ? (
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
                   No collaborative notes recorded yet. Add notes below to document field
                   adjustments.

@@ -125,6 +125,17 @@ const mockVisitPool: officerApi.OfficerVisitItem[] = [
   },
 ]
 
+const confirmGpsConsent = () => {
+  fireEvent.click(
+    screen.getByRole('checkbox', {
+      name: /I confirm the farmer has explicitly consented to recording exact GPS/i,
+    }),
+  )
+  fireEvent.change(screen.getByPlaceholderText(/Farmer verbally agreed/i), {
+    target: { value: 'Farmer verbally agreed to capture exact GPS for this visit.' },
+  })
+}
+
 const mockAssessments: officerApi.UnverifiedAssessmentItem[] = [
   {
     assessmentId: 'assess-1',
@@ -470,7 +481,10 @@ describe('ExtensionOfficerAccount component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
 
     expect(screen.getByText('On-Site Field Data & GPS Capture')).toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveTextContent('Location is unavailable in this browser.')
+
+    confirmGpsConsent()
+    fireEvent.click(screen.getByRole('button', { name: /Use current location/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Location is unavailable in this browser.')
 
     fireEvent.change(screen.getByPlaceholderText('e.g. 0.0512'), { target: { value: '0.0512' } })
     fireEvent.change(screen.getByPlaceholderText('e.g. 34.7521'), { target: { value: '34.7521' } })
@@ -522,6 +536,8 @@ describe('ExtensionOfficerAccount component', () => {
       expect(screen.getByRole('button', { name: /Collect Field Data/i })).toBeInTheDocument()
     })
     fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
+    confirmGpsConsent()
+    fireEvent.click(screen.getByRole('button', { name: /Use current location/i }))
 
     expect(await screen.findByText(/estimated accuracy ±7\.7 m/i)).toBeInTheDocument()
     expect(screen.getByLabelText('Latitude')).toHaveValue(-0.4215)
@@ -561,6 +577,8 @@ describe('ExtensionOfficerAccount component', () => {
       expect(screen.getByRole('button', { name: /Collect Field Data/i })).toBeInTheDocument()
     })
     fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
+    confirmGpsConsent()
+    fireEvent.click(screen.getByRole('button', { name: /Use current location/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Location permission was denied.')
     expect(screen.getByLabelText('Latitude')).toBeEnabled()
@@ -600,6 +618,8 @@ describe('ExtensionOfficerAccount component', () => {
       expect(screen.getByRole('button', { name: /Collect Field Data/i })).toBeInTheDocument()
     })
     fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
+    confirmGpsConsent()
+    fireEvent.click(screen.getByRole('button', { name: /Use current location/i }))
 
     expect(
       await screen.findByText(/This is a coarse location fix \(over 50 m\)/i),
