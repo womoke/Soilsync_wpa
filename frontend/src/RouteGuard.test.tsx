@@ -132,7 +132,7 @@ describe('RouteGuard Component', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/welcome')
   })
 
-  it('allows an authenticated account to continue onboarding without email confirmation', async () => {
+  it('allows a farmer with an incomplete profile to continue to farm registration', () => {
     vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
       createMockAuth({
         profile: {
@@ -153,8 +153,8 @@ describe('RouteGuard Component', () => {
       </RouteGuard>,
     )
 
-    expect(screen.getByRole('heading', { name: 'Welcome to SoilSync AI' })).toBeInTheDocument()
-    expect(screen.getByText(/Set up your farm profile/i)).toBeInTheDocument()
+    expect(screen.getByText('Protected Farmer Workspace')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Welcome to SoilSync AI' })).not.toBeInTheDocument()
   })
 
   it('does not treat a pending staff invitation as a farmer account', () => {
@@ -181,32 +181,6 @@ describe('RouteGuard Component', () => {
 
     expect(screen.getByRole('heading', { name: 'Access Restricted' })).toBeInTheDocument()
     expect(screen.queryByText(/Set up your farm profile/i)).not.toBeInTheDocument()
-  })
-
-  it('renders farmer onboarding form when farmer profile is incomplete', () => {
-    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
-      createMockAuth({
-        profile: {
-          id: 'user-1',
-          fullName: 'Amina Njeri',
-          county: null,
-          subCounty: null,
-          ward: null,
-          phoneNumber: null,
-        },
-      }),
-    )
-
-    render(
-      <RouteGuard destination="farmer" onNavigate={mockNavigate}>
-        <div>Protected Farmer Workspace</div>
-      </RouteGuard>,
-    )
-
-    expect(screen.getByRole('heading', { name: 'Welcome to SoilSync AI' })).toBeInTheDocument()
-    expect(screen.getByText(/Set up your farm profile/i)).toBeInTheDocument()
-    expect(screen.getByLabelText('Farm name')).toBeInTheDocument()
-    expect(screen.queryByText('Protected Farmer Workspace')).not.toBeInTheDocument()
   })
 
   it('renders Access Restricted when user attempts to access an unauthorized workspace', () => {

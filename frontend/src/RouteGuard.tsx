@@ -5,7 +5,6 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import { useAuth, type AppUserRole } from './context/AuthContext'
-import { FarmerOnboarding } from './FarmerOnboarding'
 import { AgrodealerPendingView } from './AgrodealerPendingView'
 import { SoilSyncLoading } from './SoilSyncLoading'
 import type { Destination } from './App'
@@ -44,13 +43,11 @@ export const RouteGuard: FC<RouteGuardProps> = ({ destination, onNavigate, child
   const {
     session,
     user,
-    profile,
     activeRoles,
     allRoles,
     isLoading,
     error,
     refreshSession,
-    refreshRoles,
     signOut,
   } = useAuth()
 
@@ -59,7 +56,7 @@ export const RouteGuard: FC<RouteGuardProps> = ({ destination, onNavigate, child
     return <>{children}</>
   }
 
-  // 2. Loading session/profile state
+  // 2. Loading session state
   if (isLoading) {
     return <SoilSyncLoading label="Verifying access permissions…" />
   }
@@ -130,23 +127,7 @@ export const RouteGuard: FC<RouteGuardProps> = ({ destination, onNavigate, child
     )
   }
 
-  // 5. Signed in, Incomplete Profile (Required farmer onboarding)
-  const isFarmer = activeRoles.includes('farmer')
-  const isProfileIncomplete = !profile?.county || !profile?.subCounty || !profile?.ward
-
-  if (isFarmer && isProfileIncomplete && destination === 'farmer') {
-    return (
-      <FarmerOnboarding
-        userId={user.id}
-        initialName={profile?.fullName || (user.user_metadata?.full_name as string) || ''}
-        onComplete={() => {
-          refreshRoles()
-        }}
-      />
-    )
-  }
-
-  // 6. Role Authorization
+  // 5. Role Authorization
   const requiredRole = destinationRoleMap[destination]
   const hasActiveRole = requiredRole ? activeRoles.includes(requiredRole) : true
 
@@ -218,6 +199,6 @@ export const RouteGuard: FC<RouteGuardProps> = ({ destination, onNavigate, child
     )
   }
 
-  // 7. Access authorized
+  // 6. Access authorized
   return <>{children}</>
 }
