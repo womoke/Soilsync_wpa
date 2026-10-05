@@ -157,6 +157,7 @@ describe('AuthContext', () => {
             eq: vi.fn().mockResolvedValue({
               data: [
                 { role: 'farmer', status: 'active', approved_at: null },
+                { role: 'agronomist', status: 'active', approved_at: '2026-10-01T00:00:00Z' },
                 { role: 'agrodealer', status: 'pending', approved_at: null },
               ],
             }),
@@ -181,8 +182,8 @@ describe('AuthContext', () => {
 
     expect(signInResult).toEqual({ error: null })
     expect(result.current.user?.id).toBe('usr-123')
-    expect(result.current.activeRoles).toEqual(['farmer'])
-    expect(result.current.allRoles).toHaveLength(2)
+    expect(result.current.activeRoles).toEqual(['farmer', 'agronomist'])
+    expect(result.current.allRoles).toHaveLength(3)
     expect(result.current.profile?.fullName).toBe('Amina Kimani')
   })
 

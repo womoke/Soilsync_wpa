@@ -9,9 +9,10 @@ import {
   type ReactNode,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
+import { updateOwnProfile } from '../api/profile'
 import { getSupabaseClient } from '../lib/supabase'
 
-export type AppUserRole = 'farmer' | 'extension-officer' | 'agrodealer' | 'admin'
+export type AppUserRole = 'farmer' | 'extension-officer' | 'agrodealer' | 'agronomist' | 'admin'
 
 export interface UserRoleRecord {
   role: AppUserRole
@@ -45,6 +46,7 @@ export interface AuthContextValue {
   signOut: () => Promise<void>
   refreshSession: () => Promise<void>
   refreshRoles: () => Promise<void>
+  updateProfile: (fullName: string, phoneNumber: string | null) => Promise<{ error: Error | null }>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -96,7 +98,13 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
         }
         if (loadId !== userDataLoadId.current) return 'stale' as const
 
-        const roleNames: AppUserRole[] = ['farmer', 'extension-officer', 'agrodealer', 'admin']
+        const roleNames: AppUserRole[] = [
+          'farmer',
+          'extension-officer',
+          'agrodealer',
+          'agronomist',
+          'admin',
+        ]
         const statuses: UserRoleRecord['status'][] = ['pending', 'active', 'suspended']
         const roles: UserRoleRecord[] = rolesResult.data.map((row) => {
           if (
@@ -175,6 +183,34 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [user, loadUserData])
 
+  const updateProfile = useCallback(
+    async (fullName: string, phoneNumber: string | null) => {
+      if (!session?.access_token) {
+        return { error: new Error('Sign in to update your profile.') }
+      }
+      try {
+        const updatedProfile = await updateOwnProfile(session.access_token, {
+          full_name: fullName,
+          phone_number: phoneNumber,
+        })
+        setProfile({
+          id: updatedProfile.id,
+          fullName: updatedProfile.fullName,
+          county: updatedProfile.county,
+          subCounty: updatedProfile.subCounty,
+          ward: updatedProfile.ward,
+          phoneNumber: updatedProfile.phoneNumber,
+        })
+        return { error: null }
+      } catch (err) {
+        return {
+          error: err instanceof Error ? err : new Error('Profile update failed.'),
+        }
+      }
+    },
+    [session],
+  )
+
   useEffect(() => {
     let mounted = true
     let receivedAuthStateChange = false
@@ -231,9 +267,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
       })
       .catch((sessionError: unknown) => {
         if (!mounted || receivedAuthStateChange) return
-        setError(
-          sessionError instanceof Error ? sessionError.message : 'Session retrieval failed.',
-        )
+        setError(sessionError instanceof Error ? sessionError.message : 'Session retrieval failed.')
         setIsLoading(false)
       })
 
@@ -343,6 +377,7 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     signOut,
     refreshSession,
     refreshRoles,
+    updateProfile,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

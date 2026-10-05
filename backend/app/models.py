@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -216,6 +216,28 @@ class DealerProfileUpdateRequest(ContractModel):
     county: str | None = Field(default=None, max_length=120)
     sub_county: str | None = Field(default=None, max_length=120)
     ward: str | None = Field(default=None, max_length=120)
+
+
+class UserProfileUpdateRequest(ContractModel):
+    full_name: str = Field(min_length=1, max_length=200)
+    phone_number: str | None = Field(default=None, pattern=r"^\+254\d{9}$")
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Full name cannot be blank.")
+        return normalized
+
+
+class UserProfileResponse(ContractModel):
+    id: str
+    full_name: str
+    county: str | None = None
+    sub_county: str | None = None
+    ward: str | None = None
+    phone_number: str | None = None
 
 
 class DealerProductCreateRequest(ContractModel):

@@ -57,6 +57,26 @@ describe('linkAuthenticatedAccount', () => {
     )
   })
 
+  it('accepts the agronomist role assigned by the server', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'linked',
+          appUserId: 'agronomist-123',
+          identityProvider: 'supabase',
+          role: 'agronomist',
+        }),
+      }),
+    )
+
+    await expect(linkAuthenticatedAccount('verified-access-token')).resolves.toMatchObject({
+      appUserId: 'agronomist-123',
+      role: 'agronomist',
+    })
+  })
+
   it('surfaces server authorization errors', async () => {
     vi.stubGlobal(
       'fetch',

@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   Download,
   Clock,
-  FileCheck,
   FileText,
   LogOut,
   Mail,
@@ -27,7 +26,6 @@ import { linkAuthenticatedAccount } from './api/auth'
 import { KENYA_COUNTIES } from './data/kenyaLocations'
 import { getSupabaseClient } from './lib/supabase'
 import {
-  claimAssessment,
   claimOfficerVisit,
   createOfficerAlert,
   editAssessment,
@@ -40,10 +38,8 @@ import {
   getOfficerVisits,
   getOfficerWardSummaries,
   getUnverifiedAssessments,
-  publishAssessment,
   recordOfficerFieldCollection,
   registerUnclaimedFarmer,
-  releaseAssessment,
   releaseOfficerVisit,
   scheduleOfficerVisit,
   triageOfficerAlert,
@@ -135,7 +131,6 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
   // Agronomic Assessment modal & review states
   const [selectedAssessment, setSelectedAssessment] = useState<UnverifiedAssessmentItem | null>(null)
   const [assessmentNotes, setAssessmentNotes] = useState('')
-  const [agronomistLicense, setAgronomistLicense] = useState('')
   const [isAssessmentActionWorking, setIsAssessmentActionWorking] = useState(false)
 
   const token = (sessionRoleVerified ? session?.access_token : null) || activeToken
@@ -489,69 +484,6 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
   const handleOpenAssessment = (item: UnverifiedAssessmentItem) => {
     setSelectedAssessment(item)
     setAssessmentNotes('')
-    setAgronomistLicense('')
-  }
-
-  const handleClaimAssessment = async (assessmentId: string) => {
-    if (!token) return
-    setIsAssessmentActionWorking(true)
-    setError('')
-    setMessage('')
-    try {
-      const res = await claimAssessment(token, assessmentId)
-      setAssessments((prev) =>
-        prev.map((a) =>
-          a.assessmentId === assessmentId
-            ? { ...a, reviewStage: 'claimed' as const, claimingAgronomistId: res.claimingAgronomistId }
-            : a,
-        ),
-      )
-      if (selectedAssessment?.assessmentId === assessmentId) {
-        setSelectedAssessment((prev) =>
-          prev
-            ? {
-                ...prev,
-                reviewStage: 'claimed' as const,
-                claimingAgronomistId: res.claimingAgronomistId,
-              }
-            : null,
-        )
-      }
-      setMessage(res.message || 'Assessment claimed for agronomist review.')
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setIsAssessmentActionWorking(false)
-    }
-  }
-
-  const handleReleaseAssessment = async (assessmentId: string) => {
-    if (!token) return
-    setIsAssessmentActionWorking(true)
-    setError('')
-    setMessage('')
-    try {
-      const res = await releaseAssessment(token, assessmentId)
-      setAssessments((prev) =>
-        prev.map((a) =>
-          a.assessmentId === assessmentId
-            ? { ...a, reviewStage: 'review_requested' as const, claimingAgronomistId: null }
-            : a,
-        ),
-      )
-      if (selectedAssessment?.assessmentId === assessmentId) {
-        setSelectedAssessment((prev) =>
-          prev
-            ? { ...prev, reviewStage: 'review_requested' as const, claimingAgronomistId: null }
-            : null,
-        )
-      }
-      setMessage(res.message || 'Assessment released back to review pool.')
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setIsAssessmentActionWorking(false)
-    }
   }
 
   const handleSaveAssessmentNotes = async (e: React.FormEvent) => {
@@ -584,30 +516,6 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
       )
       setAssessmentNotes('')
       setMessage(res.message || 'Collaborative feedback appended to assessment.')
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setIsAssessmentActionWorking(false)
-    }
-  }
-
-  const handlePublishAssessment = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!token || !selectedAssessment) return
-    setIsAssessmentActionWorking(true)
-    setError('')
-    setMessage('')
-    try {
-      const res = await publishAssessment(token, selectedAssessment.assessmentId, {
-        licenseNumber: agronomistLicense.trim() || undefined,
-        finalNotes: assessmentNotes.trim() || undefined,
-      })
-      setAssessments((prev) => prev.filter((a) => a.assessmentId !== selectedAssessment.assessmentId))
-      setSelectedAssessment(null)
-      setMessage(
-        res.message ||
-          'Assessment verified and published! The official report is now available to the farmer.',
-      )
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -1814,28 +1722,6 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                  {item.reviewStage !== 'claimed' ? (
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
-                      onClick={() => handleClaimAssessment(item.assessmentId)}
-                      disabled={isAssessmentActionWorking}
-                    >
-                      <UserCheck size={14} /> Claim
-                    </button>
-                  ) : (
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', color: 'var(--warning, #e65100)' }}
-                      onClick={() => handleReleaseAssessment(item.assessmentId)}
-                      disabled={isAssessmentActionWorking}
-                    >
-                      <Undo2 size={14} /> Release
-                    </button>
-                  )}
-
                   <button
                     className="primary-button"
                     type="button"
@@ -2769,102 +2655,19 @@ export default function ExtensionOfficerAccount({ onBackToDemo }: { onBackToDemo
               </form>
             </div>
 
-            {/* Publication / Verification Tier */}
             <div
               style={{
                 padding: '1rem',
                 borderRadius: '0.5rem',
-                border: '1px solid rgba(22, 163, 74, 0.3)',
-                backgroundColor: 'rgba(22, 163, 74, 0.05)',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--surface-accent)',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <FileCheck size={18} style={{ color: '#16a34a' }} />
-                <strong style={{ color: '#15803d', fontSize: '0.95rem' }}>
-                  Verification & Publication Tier
-                </strong>
-              </div>
-              <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.8rem', color: '#166534' }}>
-                Publishing certifies this assessment under your agronomist accreditation and permanently releases
-                the official verified soil report to the farmer workspace.
+              <strong>Agronomist verification required</strong>
+              <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Agronomists claim assessments and publish verified reports from their dedicated workspace.
+                You can add field observations above.
               </p>
-
-              <form onSubmit={handlePublishAssessment}>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                    gap: '0.75rem',
-                    marginBottom: '0.75rem',
-                  }}
-                >
-                  <label className="auth-field" style={{ margin: 0 }}>
-                    <span style={{ fontSize: '0.8rem' }}>Agronomist License / Accreditation No.</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. KAAA-AGR-4091"
-                      value={agronomistLicense}
-                      onChange={(e) => setAgronomistLicense(e.target.value)}
-                      style={{
-                        padding: '0.4rem',
-                        borderRadius: '0.25rem',
-                        border: '1px solid var(--border-color)',
-                        fontSize: '0.85rem',
-                      }}
-                    />
-                  </label>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    {selectedAssessment.reviewStage !== 'claimed' ? (
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-                        onClick={() => handleClaimAssessment(selectedAssessment.assessmentId)}
-                        disabled={isAssessmentActionWorking}
-                      >
-                        <UserCheck size={14} /> Claim Assessment
-                      </button>
-                    ) : (
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', color: 'var(--warning, #e65100)' }}
-                        onClick={() => handleReleaseAssessment(selectedAssessment.assessmentId)}
-                        disabled={isAssessmentActionWorking}
-                      >
-                        <Undo2 size={14} /> Release Claim
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => setSelectedAssessment(null)}
-                      style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-                    >
-                      Close
-                    </button>
-                    <button
-                      className="primary-button"
-                      type="submit"
-                      disabled={isAssessmentActionWorking}
-                      style={{
-                        fontSize: '0.85rem',
-                        padding: '0.4rem 1rem',
-                        backgroundColor: '#15803d',
-                        borderColor: '#15803d',
-                      }}
-                    >
-                      <ShieldCheck size={16} /> Verify & Publish Official Report
-                    </button>
-                  </div>
-                </div>
-              </form>
             </div>
           </div>
         </div>

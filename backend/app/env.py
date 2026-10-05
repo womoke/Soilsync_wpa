@@ -2,14 +2,7 @@ import os
 from pathlib import Path
 
 
-def load_env_file() -> None:
-    """Load key-value pairs from workspace or backend .env files into os.environ."""
-    env_paths = (
-        Path(__file__).resolve().parents[2] / ".env",
-        Path(__file__).resolve().parents[1] / ".env",
-        Path.cwd() / ".env",
-        Path.cwd().parent / ".env",
-    )
+def _load_env_paths(env_paths: tuple[Path, ...]) -> None:
     for env_path in env_paths:
         if not env_path.is_file():
             continue
@@ -19,14 +12,28 @@ def load_env_file() -> None:
             continue
         for raw_line in content.splitlines():
             line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
+            if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            normalized_key = key.strip()
-            normalized_value = value.strip().strip("\"'")
-            os.environ.setdefault(normalized_key, normalized_value)
+            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+def load_env_file() -> None:
+    """Load local overrides before default workspace or backend environment files."""
+    workspace = Path(__file__).resolve().parents[2]
+    backend = Path(__file__).resolve().parents[1]
+    cwd = Path.cwd()
+    env_paths = (
+        workspace / ".env.local",
+        workspace / ".env",
+        backend / ".env.local",
+        backend / ".env",
+        cwd / ".env.local",
+        cwd / ".env",
+        cwd.parent / ".env.local",
+        cwd.parent / ".env",
+    )
+    _load_env_paths(env_paths)
 
 
 load_env_file()

@@ -1862,6 +1862,54 @@
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
 }
 
+.profile-settings-dialog {
+  width: min(100%, 560px);
+}
+
+.profile-settings-field {
+  margin-top: 16px;
+}
+
+.profile-readonly-fields {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.profile-readonly-fields > div {
+  display: grid;
+  gap: 3px;
+}
+
+.profile-readonly-fields span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.profile-readonly-fields strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-transform: capitalize;
+}
+
+.profile-settings-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.profile-settings-dialog .dialog-actions {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
 .dialog-heading {
   display: flex;
   align-items: flex-start;
@@ -3300,4 +3348,3 @@
   gap: 12px;
   border-top: 1px solid var(--line);
 }
-

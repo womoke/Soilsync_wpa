@@ -25,6 +25,7 @@ from app.database import (
     archive_dealer_product,
     cancel_account_invitation,
     check_admin_permission,
+    claim_agronomic_assessment,
     claim_officer_visit,
     create_admin_audit_entry,
     create_dealer_product,
@@ -38,6 +39,7 @@ from app.database import (
     create_officer_visit,
     create_support_access_grant,
     delete_dealer_product,
+    edit_agronomic_assessment,
     export_officer_report,
     get_agrodealer_application_status,
     load_admin_audit_log,
@@ -51,6 +53,7 @@ from app.database import (
     load_dealer_profile,
     load_demo_recommendations,
     load_demo_soil_reading,
+    load_farm_verified_report,
     load_farmer_account,
     load_farmer_farm,
     load_farmer_farms,
@@ -68,19 +71,16 @@ from app.database import (
     load_officer_ward_summaries,
     load_support_access_grants,
     load_system_settings,
+    load_unverified_assessments,
     officer_register_unclaimed_farmer,
     process_unclaimed_farmer_cleanup,
     process_unclaimed_farmer_reminders,
+    publish_verified_assessment,
     queue_farmer_sync_draft,
     record_officer_field_collection,
+    release_agronomic_assessment,
     release_officer_visit,
     resend_account_invitation,
-    claim_agronomic_assessment,
-    edit_agronomic_assessment,
-    load_farm_verified_report,
-    load_unverified_assessments,
-    publish_verified_assessment,
-    release_agronomic_assessment,
     revoke_dealer_location,
     revoke_support_access_grant,
     search_dealers_proximity,
@@ -93,13 +93,14 @@ from app.database import (
     update_officer_alert,
     update_officer_visit,
     update_system_setting,
+    update_user_profile,
 )
 from app.models import (
+    AdminAgrodealerInviteRequest,
+    AdminAgrodealerInviteResponse,
     AdminAgronomistApprovalRequest,
     AdminAgronomistInviteRequest,
     AdminAgronomistInviteResponse,
-    AdminAgrodealerInviteRequest,
-    AdminAgrodealerInviteResponse,
     AdminOfficerAssignmentRequest,
     AdminOfficerInviteRequest,
     AdminOfficerInviteResponse,
@@ -147,6 +148,8 @@ from app.models import (
     UnclaimedCleanupBatchResponse,
     UnclaimedFarmerAccountResponse,
     UnclaimedReminderBatchResponse,
+    UserProfileResponse,
+    UserProfileUpdateRequest,
 )
 from app.providers import get_provider_status_summary
 from app.supabase_client import (
@@ -540,6 +543,33 @@ def get_farmer_profile(request: Request) -> dict[str, object]:
         "farms": farms,
         "sessionValid": True,
     }
+
+
+@app.patch("/api/v1/profile/me", response_model=UserProfileResponse)
+def patch_user_profile(
+    request: Request, payload: UserProfileUpdateRequest
+) -> UserProfileResponse:
+    _, auth_user = get_verified_request_user(request)
+    try:
+        linked_profile = get_linked_supabase_profile(str(auth_user.id))
+    except SupabaseProfileConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SupabaseIdentityUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if linked_profile is None or linked_profile.get("is_active") is not True:
+        raise HTTPException(status_code=401, detail="No active app profile is linked to this session.")
+
+    try:
+        updated_profile = update_user_profile(
+            str(auth_user.id),
+            full_name=payload.full_name,
+            phone_number=payload.phone_number,
+        )
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if updated_profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return UserProfileResponse(**updated_profile)
 
 
 @app.get("/api/v1/farms")
@@ -961,7 +991,10 @@ def claim_assessment_endpoint(request: Request, assessment_id: str) -> dict[str,
     if claimed is None:
         raise HTTPException(
             status_code=409,
-            detail="Assessment cannot be claimed. It may have already been claimed by another agronomist or verified.",
+            detail=(
+                "Assessment cannot be claimed. It may already be claimed or verified, "
+                "or it may be outside your approved county review pool."
+            ),
         )
     return claimed
 

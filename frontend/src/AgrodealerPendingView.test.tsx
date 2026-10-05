@@ -28,9 +28,12 @@ describe('AgrodealerPendingView Component', () => {
       signOut: vi.fn(),
       refreshSession: vi.fn(),
       refreshRoles: mockRefreshRoles,
+      updateProfile: vi.fn().mockResolvedValue({ error: null }),
     })
 
-    vi.spyOn(AgrodealerApiModule, 'getAgrodealerApplicationStatus').mockImplementation(mockGetStatus)
+    vi.spyOn(AgrodealerApiModule, 'getAgrodealerApplicationStatus').mockImplementation(
+      mockGetStatus,
+    )
   })
 
   it('renders pending review status badge and explanation', async () => {
@@ -54,7 +57,9 @@ describe('AgrodealerPendingView Component', () => {
 
     render(<AgrodealerPendingView onBackToHome={mockBackToHome} />)
 
-    expect(screen.getByRole('heading', { name: 'Dealer Application Pending Approval' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Dealer Application Pending Approval' }),
+    ).toBeInTheDocument()
     expect(screen.getByText('Application Under Review')).toBeInTheDocument()
     expect(screen.getByText(/Catalog and Orders Locked/i)).toBeInTheDocument()
 

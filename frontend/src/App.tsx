@@ -14,6 +14,7 @@ import {
   Moon,
   Plus,
   ShieldCheck,
+  Settings,
   Sun,
   X,
 } from 'lucide-react'
@@ -23,6 +24,7 @@ import { getDemoRecommendations, getDemoSoilReading } from './api/soil'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { RouteGuard } from './RouteGuard'
 import AuthEntry from './AuthEntry'
+import ProfileSettings from './ProfileSettings'
 import { roleOptions, workflowByRole, type UserRole } from './mock/userRoles'
 import type { SoilAnalyte, SoilReading, SoilReadingValues, SoilRecommendation } from './types/soil'
 import './App.css'
@@ -30,14 +32,17 @@ import './App.css'
 const FarmerAccount = lazy(() => import('./FarmerAccount'))
 const ExtensionOfficerAccount = lazy(() => import('./ExtensionOfficerAccount'))
 const AgrodealerAccount = lazy(() => import('./AgrodealerAccount'))
+const AgronomistAccount = lazy(() => import('./AgronomistAccount'))
 const AdminAccount = lazy(() => import('./AdminAccount'))
 
 type Theme = 'light' | 'dark'
-export type Destination = 'welcome' | 'farmer' | 'officer' | 'dealer' | 'admin' | 'workshop'
+export type Destination =
+  'welcome' | 'farmer' | 'officer' | 'dealer' | 'agronomist' | 'admin' | 'workshop'
 
 function getInitialDestination(): Destination {
   if (typeof window === 'undefined') return 'welcome'
   const path = window.location.pathname.toLowerCase()
+  if (path === '/agronomist') return 'agronomist'
   if (path === '/workshop' && import.meta.env.MODE === 'test') return 'workshop'
   return 'welcome'
 }
@@ -55,6 +60,7 @@ function getWorkspaceMode(destination: Destination) {
   if (destination === 'farmer') return 'farmer-account'
   if (destination === 'officer') return 'officer-account'
   if (destination === 'dealer') return 'dealer-account'
+  if (destination === 'agronomist') return 'agronomist-account'
   if (destination === 'admin') return 'admin-account'
   return 'demo'
 }
@@ -152,9 +158,15 @@ function AppContent() {
     typeof navigator !== 'undefined' ? !navigator.onLine : false,
   )
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false)
   const [isPreview, setIsPreview] = useState(false)
   const [workspaceMode, setWorkspaceMode] = useState<
-    'demo' | 'farmer-account' | 'officer-account' | 'dealer-account' | 'admin-account'
+    | 'demo'
+    | 'farmer-account'
+    | 'officer-account'
+    | 'dealer-account'
+    | 'agronomist-account'
+    | 'admin-account'
   >(() => getWorkspaceMode(getInitialDestination()))
   const [destination, setDestination] = useState<Destination>(getInitialDestination)
   const [activeRole, setActiveRole] = useState<UserRole>(getInitialRole)
@@ -185,6 +197,9 @@ function AppContent() {
       setDestination('dealer')
       setActiveRole('agrodealer')
       setWorkspaceMode('dealer-account')
+    } else if (clean === '/agronomist') {
+      setDestination('agronomist')
+      setWorkspaceMode('agronomist-account')
     } else if (clean === '/admin') {
       setDestination('admin')
       setActiveRole('admin')
@@ -209,16 +224,20 @@ function AppContent() {
           navigateTo('/officer', true)
         } else if (path === '/dealer' && activeRoles.includes('agrodealer')) {
           navigateTo('/dealer', true)
+        } else if (path === '/agronomist' && activeRoles.includes('agronomist')) {
+          navigateTo('/agronomist', true)
         } else if (path === '/farmer' && activeRoles.includes('farmer')) {
           navigateTo('/farmer', true)
         } else {
           const primaryPath = activeRoles.includes('admin')
             ? '/admin'
             : activeRoles.includes('extension-officer')
-            ? '/officer'
-            : activeRoles.includes('agrodealer')
-            ? '/dealer'
-            : '/farmer'
+              ? '/officer'
+              : activeRoles.includes('agronomist')
+                ? '/agronomist'
+                : activeRoles.includes('agrodealer')
+                  ? '/dealer'
+                  : '/farmer'
           navigateTo(primaryPath, true)
         }
       })
@@ -243,6 +262,9 @@ function AppContent() {
         setDestination('dealer')
         setActiveRole('agrodealer')
         setWorkspaceMode('dealer-account')
+      } else if (path === '/agronomist') {
+        setDestination('agronomist')
+        setWorkspaceMode('agronomist-account')
       } else if (path === '/admin') {
         setDestination('admin')
         setActiveRole('admin')
@@ -736,17 +758,31 @@ function AppContent() {
       <header className="topbar">
         <a
           className="brand"
-          href={session ? (activeRoles.includes('admin') ? '/admin' : activeRoles.includes('extension-officer') ? '/officer' : activeRoles.includes('agrodealer') ? '/dealer' : '/farmer') : '/welcome'}
+          href={
+            session
+              ? activeRoles.includes('admin')
+                ? '/admin'
+                : activeRoles.includes('extension-officer')
+                  ? '/officer'
+                  : activeRoles.includes('agronomist')
+                    ? '/agronomist'
+                    : activeRoles.includes('agrodealer')
+                      ? '/dealer'
+                      : '/farmer'
+              : '/welcome'
+          }
           onClick={(e) => {
             e.preventDefault()
             if (session) {
               const target = activeRoles.includes('admin')
                 ? '/admin'
                 : activeRoles.includes('extension-officer')
-                ? '/officer'
-                : activeRoles.includes('agrodealer')
-                ? '/dealer'
-                : '/farmer'
+                  ? '/officer'
+                  : activeRoles.includes('agronomist')
+                    ? '/agronomist'
+                    : activeRoles.includes('agrodealer')
+                      ? '/dealer'
+                      : '/farmer'
               navigateTo(target, true)
             } else {
               navigateTo('/welcome', true)
@@ -767,12 +803,26 @@ function AppContent() {
             <div className="topbar-user">
               <div className="topbar-user-info">
                 <span className="topbar-user-name">
-                  {profile?.fullName || (typeof user?.user_metadata?.display_name === 'string' ? user.user_metadata.display_name : null) || user?.email?.split('@')[0] || 'User'}
+                  {profile?.fullName ||
+                    (typeof user?.user_metadata?.display_name === 'string'
+                      ? user.user_metadata.display_name
+                      : null) ||
+                    user?.email?.split('@')[0] ||
+                    'User'}
                 </span>
                 <span className="topbar-user-role">
                   {activeRoles[0] ? activeRoles[0].replace('-', ' ') : 'Account'}
                 </span>
               </div>
+              <button
+                className="topbar-signout-btn"
+                type="button"
+                onClick={() => setIsProfileSettingsOpen(true)}
+                aria-label="Open profile settings"
+              >
+                <Settings size={15} />
+                <span>Profile</span>
+              </button>
               <button
                 className="topbar-signout-btn"
                 type="button"
@@ -873,6 +923,20 @@ function AppContent() {
             </Suspense>
           </div>
         </RouteGuard>
+      ) : destination === 'agronomist' ? (
+        <RouteGuard destination="agronomist" onNavigate={(path) => navigateTo(path, true)}>
+          <div className="app-workspace-shell">
+            <Suspense
+              fallback={
+                <p className="account-loading" role="status">
+                  Opening agronomist workspace…
+                </p>
+              }
+            >
+              <AgronomistAccount onBackToDemo={() => navigateTo('/welcome', true)} />
+            </Suspense>
+          </div>
+        </RouteGuard>
       ) : destination === 'admin' ? (
         <RouteGuard destination="admin" onNavigate={(path) => navigateTo(path, true)}>
           <div className="app-workspace-shell">
@@ -891,9 +955,7 @@ function AppContent() {
         <RouteGuard destination={destination} onNavigate={(path) => navigateTo(path, true)}>
           <div className="workspace">
             <aside className="sidebar" aria-label="Workspace navigation">
-              <div className="workspace-caption">
-                {currentRole.caption}
-              </div>
+              <div className="workspace-caption">{currentRole.caption}</div>
               <nav className="side-nav">
                 {currentRole.navigation.map((item, index) => (
                   <a
@@ -920,9 +982,7 @@ function AppContent() {
                   <ShieldCheck size={17} />
                 </div>
                 <p>Synthetic preview</p>
-                <span>
-                  Role switching is for stakeholder demonstration only.
-                </span>
+                <span>Role switching is for stakeholder demonstration only.</span>
               </div>
               <div className="sidebar-bottom">
                 SOILSYNC AI <span>•</span> PREVIEW
@@ -933,312 +993,314 @@ function AppContent() {
               {activeRole === 'farmer' ? (
                 <>
                   <div className="page-heading">
-                  <div>
-                    <div className="eyebrow">YOUR FIELD AT A GLANCE</div>
-                    <h1>Soil overview</h1>
-                    <p className="page-subtitle">
-                      A clear view of your soil record and what still needs review.
-                    </p>
-                  </div>
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick={() => setIsFormOpen(true)}
-                  >
-                    <Plus size={17} /> Add a reading
-                  </button>
-                </div>
-
-                <div className="demo-banner" role="note">
-                  <Info size={17} />
-                  <span>
-                    {databaseError ? (
-                      <>
-                        <strong>Database unavailable.</strong> Screen records are hidden until the
-                        system database is connected.
-                      </>
-                    ) : (
-                      <>
-                        <strong>Seeded database record.</strong> Soil readings and workflow data are
-                        loaded from the system database.
-                      </>
-                    )}
-                  </span>
-                  <span className="demo-banner-tag">
-                    {databaseError
-                      ? 'UNAVAILABLE'
-                      : isPreview
-                        ? 'LOCAL PREVIEW'
-                        : isOffline
-                          ? 'OFFLINE'
-                          : soilRecord
-                            ? 'DATABASE'
-                            : 'LOADING'}
-                  </span>
-                </div>
-
-                <section className="overview-grid" aria-label="Farm and soil summary">
-                  <article className="farm-panel" id="farm">
-                    <div className="farm-panel-top">
-                      <span className="farm-icon">
-                        <House size={18} />
-                      </span>
-                      <span className="record-tag">
-                        {isPreview ? 'LOCAL PREVIEW' : soilRecord ? 'DATABASE' : 'NO RECORD'}
-                      </span>
-                    </div>
-                    <h2>{currentFarmer?.farmName ?? 'Farm profile unavailable'}</h2>
-                    <p className="farm-location">
-                      <MapPin size={15} />
-                      {currentFarmer?.ward ?? 'Ward unavailable'}
-                      {soilRecord?.location.latitude !== null &&
-                      soilRecord?.location.latitude !== undefined &&
-                      soilRecord.location.longitude !== null &&
-                      soilRecord.location.longitude !== undefined
-                        ? ` · ${soilRecord.location.latitude}, ${soilRecord.location.longitude}`
-                        : ''}
-                    </p>
-                    <div className="farm-divider" />
-                    <div className="farm-facts">
-                      <div>
-                        <span>Latest record</span>
-                        <strong>
-                          {isPreview
-                            ? 'Local preview'
-                            : formatSampleDate(soilRecord?.sample.sampledAt)}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>Sample depth</span>
-                        <strong>{soilRecord?.sample.depth.sourceLabel ?? 'Not supplied'}</strong>
-                      </div>
-                      <div>
-                        <span>Data source</span>
-                        <strong>{soilRecord?.source.provider ?? 'Not available'}</strong>
-                      </div>
-                      <div>
-                        <span>Attribution</span>
-                        <strong>{soilRecord?.source.attribution ?? 'Not supplied'}</strong>
-                      </div>
-                    </div>
-                  </article>
-
-                  <article className="score-panel">
-                    <div className="panel-kicker">
-                      <Activity size={16} /> READING COVERAGE
-                    </div>
-                    <div className="score-placeholder">
-                      {Object.values(reading).filter((value) => value !== null).length}
-                      <span>/{readingFields.length}</span>
-                    </div>
-                    <div className="score-rule" />
-                    <p>Measurements entered</p>
-                    <span className="score-caption">Soil health scoring is not available yet.</span>
-                    <div className="score-foot">
-                      <ShieldCheck size={15} />
-                      No unreviewed score shown
-                    </div>
-                  </article>
-                </section>
-
-                <section className="history-panel" aria-label="Recent readings">
-                  <div className="section-heading">
                     <div>
-                      <div className="eyebrow">READING HISTORY</div>
-                      <h2>Recent readings</h2>
-                    </div>
-                    <span className="sample-status">
-                      <span className="status-dot muted" />
-                      {history.length} saved
-                    </span>
-                  </div>
-                  <div className="history-list">
-                    {history.length === 0 ? (
-                      <p className="history-empty">
-                        No soil reading records were returned by the database.
+                      <div className="eyebrow">YOUR FIELD AT A GLANCE</div>
+                      <h1>Soil overview</h1>
+                      <p className="page-subtitle">
+                        A clear view of your soil record and what still needs review.
                       </p>
-                    ) : (
-                      history.map((entry, index) => (
-                        <div
-                          className="history-item"
-                          key={`${index}-${formatReadingValue(entry.soilPh)}`}
-                        >
-                          <div className="history-pill">#{history.length - index}</div>
-                          <div className="history-details">
-                            <strong>{formatReadingValue(entry.soilPh ?? null)} pH</strong>
-                            <span>
-                              N {formatReadingValue(entry.nitrogen ?? null)}% · P{' '}
-                              {formatReadingValue(entry.phosphorus ?? null)} ppm · K{' '}
-                              {formatReadingValue(entry.potassium ?? null)} meq%
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                <section className="measurements-section" id="measurements">
-                  <div className="section-heading">
-                    <div>
-                      <div className="eyebrow">LAB MEASUREMENTS</div>
-                      <h2>Soil readings</h2>
                     </div>
-                    <span className="sample-status">
-                      <span className="status-dot muted" />
-                      {isPreview
-                        ? 'Local preview'
-                        : soilRecord
-                          ? 'Database record'
-                          : 'No database record'}
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() => setIsFormOpen(true)}
+                    >
+                      <Plus size={17} /> Add a reading
+                    </button>
+                  </div>
+
+                  <div className="demo-banner" role="note">
+                    <Info size={17} />
+                    <span>
+                      {databaseError ? (
+                        <>
+                          <strong>Database unavailable.</strong> Screen records are hidden until the
+                          system database is connected.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Seeded database record.</strong> Soil readings and workflow data
+                          are loaded from the system database.
+                        </>
+                      )}
+                    </span>
+                    <span className="demo-banner-tag">
+                      {databaseError
+                        ? 'UNAVAILABLE'
+                        : isPreview
+                          ? 'LOCAL PREVIEW'
+                          : isOffline
+                            ? 'OFFLINE'
+                            : soilRecord
+                              ? 'DATABASE'
+                              : 'LOADING'}
                     </span>
                   </div>
-                  <div className="measurement-table" role="table" aria-label="Soil readings">
-                    <div className="measurement-header" role="row">
-                      <span role="columnheader">MEASURE</span>
-                      <span role="columnheader">VALUE</span>
-                      <span role="columnheader">SOURCE UNIT</span>
-                      <span role="columnheader">QUALITY</span>
-                    </div>
-                    {readingFields.map((field) => (
-                      <div className="measurement-row" role="row" key={field.key}>
-                        <span className="measure-name" role="cell">
-                          <span className="measure-mark" />
-                          {field.label}
+
+                  <section className="overview-grid" aria-label="Farm and soil summary">
+                    <article className="farm-panel" id="farm">
+                      <div className="farm-panel-top">
+                        <span className="farm-icon">
+                          <House size={18} />
                         </span>
-                        <strong role="cell">{formatReadingValue(reading[field.key])}</strong>
-                        <span className="unit-value" role="cell">
-                          {readingUnits.get(field.analyte) ?? 'Not available'}
-                        </span>
-                        <span className="interpretation" role="cell">
-                          {isPreview
-                            ? 'local preview'
-                            : (readingQualities.get(field.analyte) ?? 'Not available')}
+                        <span className="record-tag">
+                          {isPreview ? 'LOCAL PREVIEW' : soilRecord ? 'DATABASE' : 'NO RECORD'}
                         </span>
                       </div>
-                    ))}
-                  </div>
-                  <p className="table-footnote">
-                    <Info size={14} /> Units are shown as stored in the database. Laboratory methods
-                    and compatible units have not been validated.
-                  </p>
-                </section>
-
-                <section className="guidance-panel" id="guidance">
-                  <div className="guidance-icon">
-                    <ClipboardList size={19} />
-                  </div>
-                  <div className="guidance-copy">
-                    <div className="eyebrow">RECOMMENDATIONS</div>
-                    {recommendations.length > 0 ? (
-                      <>
-                        <h2>Agronomic guidance</h2>
-                        <div className="recommendation-caveat" role="note">
-                          <AlertTriangle size={15} />
-                          <span>
-                            Workshop guidance is illustrative and is not agronomic advice.
-                          </span>
+                      <h2>{currentFarmer?.farmName ?? 'Farm profile unavailable'}</h2>
+                      <p className="farm-location">
+                        <MapPin size={15} />
+                        {currentFarmer?.ward ?? 'Ward unavailable'}
+                        {soilRecord?.location.latitude !== null &&
+                        soilRecord?.location.latitude !== undefined &&
+                        soilRecord.location.longitude !== null &&
+                        soilRecord.location.longitude !== undefined
+                          ? ` · ${soilRecord.location.latitude}, ${soilRecord.location.longitude}`
+                          : ''}
+                      </p>
+                      <div className="farm-divider" />
+                      <div className="farm-facts">
+                        <div>
+                          <span>Latest record</span>
+                          <strong>
+                            {isPreview
+                              ? 'Local preview'
+                              : formatSampleDate(soilRecord?.sample.sampledAt)}
+                          </strong>
                         </div>
                         <div>
-                          {recommendations.map((recommendation) => {
-                            const selectedFeedback =
-                              recommendationFeedback[recommendation.recommendationId]
-
-                            return (
-                              <div
-                                key={recommendation.recommendationId}
-                                className="recommendation-card"
-                              >
-                                <div className="recommendation-header">
-                                  <h3>{recommendation.title}</h3>
-                                  <span className="recommendation-version">
-                                    v{recommendation.ruleVersion ?? 'prototype'}
-                                  </span>
-                                </div>
-                                <div className="recommendation-context-row">
-                                  <span className="context-badge">
-                                    Crop: {recommendation.crop ?? 'not specified'}
-                                  </span>
-                                  <span className="context-badge">
-                                    Farm context:{' '}
-                                    {recommendation.farmId
-                                      ? `linked to ${recommendation.farmId}`
-                                      : 'local preview only'}
-                                  </span>
-                                </div>
-                                <p>{recommendation.rationale}</p>
-                                <small>
-                                  {recommendation.applicationRate !== null &&
-                                  recommendation.applicationUnit
-                                    ? `${recommendation.applicationRate} ${recommendation.applicationUnit}`
-                                    : 'Rate pending'}
-                                  {' · '}
-                                  <span>
-                                    {recommendation.reviewStatus === 'pending_review'
-                                      ? 'Review pending'
-                                      : 'Approved'}
-                                  </span>
-                                </small>
-                                <div
-                                  className="recommendation-feedback"
-                                  aria-label={`Recommendation feedback for ${recommendation.title}`}
-                                >
-                                  <span className="recommendation-feedback-label">Feedback</span>
-                                  <div className="feedback-options">
-                                    {recommendationFeedbackOptions.map((option) => (
-                                      <button
-                                        key={`${recommendation.recommendationId}-${option.value}`}
-                                        type="button"
-                                        className={`feedback-button ${selectedFeedback === option.value ? 'is-selected' : ''}`}
-                                        aria-pressed={selectedFeedback === option.value}
-                                        onClick={() =>
-                                          applyRecommendationFeedback(
-                                            recommendation.recommendationId,
-                                            option.value,
-                                          )
-                                        }
-                                      >
-                                        {option.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                  <p className="recommendation-feedback-status">
-                                    {selectedFeedback
-                                      ? 'Feedback selected for review.'
-                                      : 'No feedback recorded yet.'}
-                                  </p>
-                                </div>
-                              </div>
-                            )
-                          })}
+                          <span>Sample depth</span>
+                          <strong>{soilRecord?.sample.depth.sourceLabel ?? 'Not supplied'}</strong>
                         </div>
-                      </>
-                    ) : (
-                      <>
-                        <h2>Guidance is not available yet</h2>
-                        <p>
-                          Thresholds and application rates are awaiting agronomic review. SoilSync AI
-                          will not generate fertilizer advice from these sample values.
-                        </p>
-                      </>
-                    )}
-                  </div>
-                  <span className="review-badge">
-                    <span className="review-dot" />{' '}
-                    {recommendations.length > 0 ? 'ILLUSTRATIVE' : 'REVIEW PENDING'}
-                  </span>
-                </section>
+                        <div>
+                          <span>Data source</span>
+                          <strong>{soilRecord?.source.provider ?? 'Not available'}</strong>
+                        </div>
+                        <div>
+                          <span>Attribution</span>
+                          <strong>{soilRecord?.source.attribution ?? 'Not supplied'}</strong>
+                        </div>
+                      </div>
+                    </article>
 
-                <footer className="page-footer">
-                  <span>SoilSync AI</span>
-                  <span>Soil recommendations require verified data and agronomic review.</span>
-                </footer>
-              </>
-            ) : (
-              renderRoleDashboard()
-            )}
-          </main>
-        </div>
+                    <article className="score-panel">
+                      <div className="panel-kicker">
+                        <Activity size={16} /> READING COVERAGE
+                      </div>
+                      <div className="score-placeholder">
+                        {Object.values(reading).filter((value) => value !== null).length}
+                        <span>/{readingFields.length}</span>
+                      </div>
+                      <div className="score-rule" />
+                      <p>Measurements entered</p>
+                      <span className="score-caption">
+                        Soil health scoring is not available yet.
+                      </span>
+                      <div className="score-foot">
+                        <ShieldCheck size={15} />
+                        No unreviewed score shown
+                      </div>
+                    </article>
+                  </section>
+
+                  <section className="history-panel" aria-label="Recent readings">
+                    <div className="section-heading">
+                      <div>
+                        <div className="eyebrow">READING HISTORY</div>
+                        <h2>Recent readings</h2>
+                      </div>
+                      <span className="sample-status">
+                        <span className="status-dot muted" />
+                        {history.length} saved
+                      </span>
+                    </div>
+                    <div className="history-list">
+                      {history.length === 0 ? (
+                        <p className="history-empty">
+                          No soil reading records were returned by the database.
+                        </p>
+                      ) : (
+                        history.map((entry, index) => (
+                          <div
+                            className="history-item"
+                            key={`${index}-${formatReadingValue(entry.soilPh)}`}
+                          >
+                            <div className="history-pill">#{history.length - index}</div>
+                            <div className="history-details">
+                              <strong>{formatReadingValue(entry.soilPh ?? null)} pH</strong>
+                              <span>
+                                N {formatReadingValue(entry.nitrogen ?? null)}% · P{' '}
+                                {formatReadingValue(entry.phosphorus ?? null)} ppm · K{' '}
+                                {formatReadingValue(entry.potassium ?? null)} meq%
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="measurements-section" id="measurements">
+                    <div className="section-heading">
+                      <div>
+                        <div className="eyebrow">LAB MEASUREMENTS</div>
+                        <h2>Soil readings</h2>
+                      </div>
+                      <span className="sample-status">
+                        <span className="status-dot muted" />
+                        {isPreview
+                          ? 'Local preview'
+                          : soilRecord
+                            ? 'Database record'
+                            : 'No database record'}
+                      </span>
+                    </div>
+                    <div className="measurement-table" role="table" aria-label="Soil readings">
+                      <div className="measurement-header" role="row">
+                        <span role="columnheader">MEASURE</span>
+                        <span role="columnheader">VALUE</span>
+                        <span role="columnheader">SOURCE UNIT</span>
+                        <span role="columnheader">QUALITY</span>
+                      </div>
+                      {readingFields.map((field) => (
+                        <div className="measurement-row" role="row" key={field.key}>
+                          <span className="measure-name" role="cell">
+                            <span className="measure-mark" />
+                            {field.label}
+                          </span>
+                          <strong role="cell">{formatReadingValue(reading[field.key])}</strong>
+                          <span className="unit-value" role="cell">
+                            {readingUnits.get(field.analyte) ?? 'Not available'}
+                          </span>
+                          <span className="interpretation" role="cell">
+                            {isPreview
+                              ? 'local preview'
+                              : (readingQualities.get(field.analyte) ?? 'Not available')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="table-footnote">
+                      <Info size={14} /> Units are shown as stored in the database. Laboratory
+                      methods and compatible units have not been validated.
+                    </p>
+                  </section>
+
+                  <section className="guidance-panel" id="guidance">
+                    <div className="guidance-icon">
+                      <ClipboardList size={19} />
+                    </div>
+                    <div className="guidance-copy">
+                      <div className="eyebrow">RECOMMENDATIONS</div>
+                      {recommendations.length > 0 ? (
+                        <>
+                          <h2>Agronomic guidance</h2>
+                          <div className="recommendation-caveat" role="note">
+                            <AlertTriangle size={15} />
+                            <span>
+                              Workshop guidance is illustrative and is not agronomic advice.
+                            </span>
+                          </div>
+                          <div>
+                            {recommendations.map((recommendation) => {
+                              const selectedFeedback =
+                                recommendationFeedback[recommendation.recommendationId]
+
+                              return (
+                                <div
+                                  key={recommendation.recommendationId}
+                                  className="recommendation-card"
+                                >
+                                  <div className="recommendation-header">
+                                    <h3>{recommendation.title}</h3>
+                                    <span className="recommendation-version">
+                                      v{recommendation.ruleVersion ?? 'prototype'}
+                                    </span>
+                                  </div>
+                                  <div className="recommendation-context-row">
+                                    <span className="context-badge">
+                                      Crop: {recommendation.crop ?? 'not specified'}
+                                    </span>
+                                    <span className="context-badge">
+                                      Farm context:{' '}
+                                      {recommendation.farmId
+                                        ? `linked to ${recommendation.farmId}`
+                                        : 'local preview only'}
+                                    </span>
+                                  </div>
+                                  <p>{recommendation.rationale}</p>
+                                  <small>
+                                    {recommendation.applicationRate !== null &&
+                                    recommendation.applicationUnit
+                                      ? `${recommendation.applicationRate} ${recommendation.applicationUnit}`
+                                      : 'Rate pending'}
+                                    {' · '}
+                                    <span>
+                                      {recommendation.reviewStatus === 'pending_review'
+                                        ? 'Review pending'
+                                        : 'Approved'}
+                                    </span>
+                                  </small>
+                                  <div
+                                    className="recommendation-feedback"
+                                    aria-label={`Recommendation feedback for ${recommendation.title}`}
+                                  >
+                                    <span className="recommendation-feedback-label">Feedback</span>
+                                    <div className="feedback-options">
+                                      {recommendationFeedbackOptions.map((option) => (
+                                        <button
+                                          key={`${recommendation.recommendationId}-${option.value}`}
+                                          type="button"
+                                          className={`feedback-button ${selectedFeedback === option.value ? 'is-selected' : ''}`}
+                                          aria-pressed={selectedFeedback === option.value}
+                                          onClick={() =>
+                                            applyRecommendationFeedback(
+                                              recommendation.recommendationId,
+                                              option.value,
+                                            )
+                                          }
+                                        >
+                                          {option.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <p className="recommendation-feedback-status">
+                                      {selectedFeedback
+                                        ? 'Feedback selected for review.'
+                                        : 'No feedback recorded yet.'}
+                                    </p>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <h2>Guidance is not available yet</h2>
+                          <p>
+                            Thresholds and application rates are awaiting agronomic review. SoilSync
+                            AI will not generate fertilizer advice from these sample values.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    <span className="review-badge">
+                      <span className="review-dot" />{' '}
+                      {recommendations.length > 0 ? 'ILLUSTRATIVE' : 'REVIEW PENDING'}
+                    </span>
+                  </section>
+
+                  <footer className="page-footer">
+                    <span>SoilSync AI</span>
+                    <span>Soil recommendations require verified data and agronomic review.</span>
+                  </footer>
+                </>
+              ) : (
+                renderRoleDashboard()
+              )}
+            </main>
+          </div>
         </RouteGuard>
       )}
 
@@ -1314,6 +1376,7 @@ function AppContent() {
           Reading preview updated. Values are temporary and were not saved.
         </span>
       )}
+      {isProfileSettingsOpen && <ProfileSettings onClose={() => setIsProfileSettingsOpen(false)} />}
       {destination === 'workshop' && (
         <div className="mobile-bottom-label">
           <ChevronRight size={14} /> Farmer workspace

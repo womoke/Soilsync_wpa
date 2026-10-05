@@ -20,6 +20,7 @@ const roleDestinationMap: Record<AppUserRole, Destination> = {
   farmer: 'farmer',
   'extension-officer': 'officer',
   agrodealer: 'dealer',
+  agronomist: 'agronomist',
   admin: 'admin',
 }
 
@@ -27,6 +28,7 @@ const destinationRoleMap: Partial<Record<Destination, AppUserRole>> = {
   farmer: 'farmer',
   officer: 'extension-officer',
   dealer: 'agrodealer',
+  agronomist: 'agronomist',
   admin: 'admin',
 }
 
@@ -34,6 +36,7 @@ const roleLabelMap: Record<AppUserRole, string> = {
   farmer: 'Farmer',
   'extension-officer': 'Extension Officer',
   agrodealer: 'Agrodealer',
+  agronomist: 'Agronomist',
   admin: 'Administrator',
 }
 
@@ -172,7 +175,7 @@ export const RouteGuard: FC<RouteGuardProps> = ({ destination, onNavigate, child
     const homePath = primaryActiveRole ? `/${roleDestinationMap[primaryActiveRole]}` : '/welcome'
     const homeLabel = primaryActiveRole ? `${roleLabelMap[primaryActiveRole]} Workspace` : 'Sign In'
 
-    if (isPending) {
+    if (isPending && requiredRole === 'agrodealer') {
       return <AgrodealerPendingView onBackToHome={() => onNavigate(homePath)} />
     }
 
@@ -198,6 +201,11 @@ export const RouteGuard: FC<RouteGuardProps> = ({ destination, onNavigate, child
         <p style={{ color: 'var(--ink-muted, #64748b)', fontSize: '14px', lineHeight: '1.5', margin: '0 0 24px 0' }}>
           You do not have active permissions to access the {roleLabelMap[requiredRole] || destination} workspace.
         </p>
+        {isPending && requiredRole === 'agronomist' && (
+          <p style={{ color: 'var(--ink-muted, #64748b)', fontSize: '14px', lineHeight: '1.5', margin: '0 0 24px 0' }}>
+            Agronomist accounts must be approved by an administrator before reviewing assessments.
+          </p>
+        )}
         {requiredRole === 'agrodealer' && (
           <p style={{ color: 'var(--ink-muted, #64748b)', fontSize: '14px', lineHeight: '1.5', margin: '0 0 24px 0' }}>
             Agrodealer accounts are created by an administrator. Contact your administrator for an invitation.

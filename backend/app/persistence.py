@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from app.env import load_env_file
+
 try:
     import psycopg
 except ImportError:  # pragma: no cover
@@ -11,28 +13,7 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-
-def _load_env_file() -> None:
-    env_paths = (
-        Path(__file__).resolve().parents[2] / ".env",
-        Path(__file__).resolve().parents[1] / ".env",
-    )
-    for env_path in env_paths:
-        if not env_path.exists():
-            continue
-        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            normalized_key = key.strip()
-            normalized_value = value.strip().strip("\"'")
-            os.environ.setdefault(normalized_key, normalized_value)
-
-
-_load_env_file()
+load_env_file()
 
 
 class RuntimeStateStore:

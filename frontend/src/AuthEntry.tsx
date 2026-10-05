@@ -35,6 +35,7 @@ const destinationByRole: Record<AppRole, string> = {
   farmer: '/farmer',
   extension_officer: '/officer',
   agrodealer: '/dealer',
+  agronomist: '/agronomist',
   admin: '/admin',
 }
 

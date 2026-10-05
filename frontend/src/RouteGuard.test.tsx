@@ -8,10 +8,16 @@ const mockSignOut = vi.fn().mockResolvedValue(undefined)
 const mockRefreshRoles = vi.fn().mockResolvedValue(undefined)
 const mockNavigate = vi.fn()
 
-function createMockAuth(overrides: Partial<AuthContextModule.AuthContextValue> = {}): AuthContextModule.AuthContextValue {
+function createMockAuth(
+  overrides: Partial<AuthContextModule.AuthContextValue> = {},
+): AuthContextModule.AuthContextValue {
   return {
     session: { access_token: 'valid-token' } as Session,
-    user: { id: 'user-1', email: 'farmer@example.com', email_confirmed_at: '2026-10-01T00:00:00Z' } as User,
+    user: {
+      id: 'user-1',
+      email: 'farmer@example.com',
+      email_confirmed_at: '2026-10-01T00:00:00Z',
+    } as User,
     profile: {
       id: 'user-1',
       fullName: 'Amina Njeri',
@@ -29,6 +35,7 @@ function createMockAuth(overrides: Partial<AuthContextModule.AuthContextValue> =
     signOut: mockSignOut,
     refreshSession: vi.fn(),
     refreshRoles: mockRefreshRoles,
+    updateProfile: vi.fn().mockResolvedValue({ error: null }),
     ...overrides,
   }
 }
@@ -67,9 +74,7 @@ describe('RouteGuard Component', () => {
   })
 
   it('shows loading indicator while verifying access permissions', () => {
-    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
-      createMockAuth({ isLoading: true }),
-    )
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(createMockAuth({ isLoading: true }))
 
     render(
       <RouteGuard destination="farmer" onNavigate={mockNavigate}>
@@ -96,7 +101,9 @@ describe('RouteGuard Component', () => {
       </RouteGuard>,
     )
 
-    expect(screen.getByRole('heading', { name: 'Unable to verify account access' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Unable to verify account access' }),
+    ).toBeInTheDocument()
     expect(screen.getByText('Could not load account access details.')).toBeInTheDocument()
     expect(screen.queryByText('Protected Farmer Workspace')).not.toBeInTheDocument()
   })
@@ -113,7 +120,9 @@ describe('RouteGuard Component', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Sign-in Required' })).toBeInTheDocument()
-    expect(screen.getByText(/You must be signed in to access the farmer workspace/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/You must be signed in to access the farmer workspace/i),
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Go to Sign In' }))
     expect(mockNavigate).toHaveBeenCalledWith('/welcome')
@@ -234,8 +243,12 @@ describe('RouteGuard Component', () => {
       </RouteGuard>,
     )
 
-    expect(screen.getByText(/Agrodealer accounts are created by an administrator/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Apply to Become an Agrodealer/i })).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Agrodealer accounts are created by an administrator/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Apply to Become an Agrodealer/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('renders Application Under Review when user role is in pending status', () => {
@@ -255,15 +268,73 @@ describe('RouteGuard Component', () => {
       </RouteGuard>,
     )
 
-    expect(screen.getByRole('heading', { name: /Dealer Application Pending Approval/i })).toBeInTheDocument()
-    expect(screen.getByText('Application Under Review')).toBeInTheDocument()
     expect(
-      screen.getByText(/must review and verify your business licence/i),
+      screen.getByRole('heading', { name: /Dealer Application Pending Approval/i }),
     ).toBeInTheDocument()
+    expect(screen.getByText('Application Under Review')).toBeInTheDocument()
+    expect(screen.getByText(/must review and verify your business licence/i)).toBeInTheDocument()
 
     const returnButton = screen.getByRole('button', { name: /Return to Farmer Workspace/i })
     fireEvent.click(returnButton)
     expect(mockNavigate).toHaveBeenCalledWith('/farmer')
+  })
+
+  it('allows an active agronomist into the dedicated workspace', () => {
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+      createMockAuth({
+        activeRoles: ['agronomist'],
+        allRoles: [{ role: 'agronomist', status: 'active' }],
+      }),
+    )
+
+    render(
+      <RouteGuard destination="agronomist" onNavigate={mockNavigate}>
+        <div>Agronomist Review Workspace</div>
+      </RouteGuard>,
+    )
+
+    expect(screen.getByText('Agronomist Review Workspace')).toBeInTheDocument()
+  })
+
+  it('denies a farmer access to the agronomist workspace', () => {
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+      createMockAuth({
+        activeRoles: ['farmer'],
+        allRoles: [{ role: 'farmer', status: 'active' }],
+      }),
+    )
+
+    render(
+      <RouteGuard destination="agronomist" onNavigate={mockNavigate}>
+        <div>Protected Agronomist Workspace</div>
+      </RouteGuard>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Access Restricted' })).toBeInTheDocument()
+    expect(screen.queryByText('Protected Agronomist Workspace')).not.toBeInTheDocument()
+  })
+
+  it('explains that a pending agronomist needs administrator approval', () => {
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue(
+      createMockAuth({
+        activeRoles: ['farmer'],
+        allRoles: [
+          { role: 'farmer', status: 'active' },
+          { role: 'agronomist', status: 'pending' },
+        ],
+      }),
+    )
+
+    render(
+      <RouteGuard destination="agronomist" onNavigate={mockNavigate}>
+        <div>Protected Agronomist Workspace</div>
+      </RouteGuard>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Access Restricted' })).toBeInTheDocument()
+    expect(
+      screen.getByText(/must be approved by an administrator before reviewing assessments/i),
+    ).toBeInTheDocument()
   })
 
   it('renders children when user is authenticated, verified, onboarded, and authorized', () => {

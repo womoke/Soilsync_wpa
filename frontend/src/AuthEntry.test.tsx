@@ -60,6 +60,31 @@ describe('AuthEntry', () => {
     )
   })
 
+  it('routes an agronomist to the dedicated review workspace', async () => {
+    const onAuthenticated = vi.fn()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'linked',
+          appUserId: 'agronomist-123',
+          identityProvider: 'supabase',
+          role: 'agronomist',
+        }),
+      }),
+    )
+    render(<AuthEntry onAuthenticated={onAuthenticated} />)
+
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'agronomist@example.test' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secure-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('/agronomist'))
+  })
+
   it('creates an account and prompts the user to sign in when Supabase returns no session', async () => {
     render(<AuthEntry onAuthenticated={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }))

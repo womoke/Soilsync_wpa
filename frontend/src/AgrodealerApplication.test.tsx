@@ -26,6 +26,7 @@ describe('AgrodealerApplication Component', () => {
       signOut: vi.fn(),
       refreshSession: vi.fn(),
       refreshRoles: mockRefreshRoles,
+      updateProfile: vi.fn().mockResolvedValue({ error: null }),
     })
 
     vi.spyOn(AgrodealerApiModule, 'applyForAgrodealer').mockImplementation(mockApply)
@@ -34,7 +35,9 @@ describe('AgrodealerApplication Component', () => {
   it('renders application form fields and Kenyan counties dropdown', () => {
     render(<AgrodealerApplication onSuccess={mockSuccess} onCancel={mockCancel} />)
 
-    expect(screen.getByRole('heading', { name: 'Register Your Agrodealer Business' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Register Your Agrodealer Business' }),
+    ).toBeInTheDocument()
     expect(screen.getByLabelText(/Business name/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Licence \/ Registration number/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Contact person name/i)).toBeInTheDocument()
@@ -46,15 +49,25 @@ describe('AgrodealerApplication Component', () => {
   it('validates +254 phone number format when provided', async () => {
     render(<AgrodealerApplication onSuccess={mockSuccess} onCancel={mockCancel} />)
 
-    fireEvent.change(screen.getByLabelText(/Business name/i), { target: { value: 'Nakuru Inputs' } })
-    fireEvent.change(screen.getByLabelText(/Licence \/ Registration number/i), { target: { value: 'AFA/2026/123' } })
-    fireEvent.change(screen.getByLabelText(/Contact person name/i), { target: { value: 'John Kamau' } })
-    fireEvent.change(screen.getByLabelText(/Business phone number/i), { target: { value: '0712345678' } })
+    fireEvent.change(screen.getByLabelText(/Business name/i), {
+      target: { value: 'Nakuru Inputs' },
+    })
+    fireEvent.change(screen.getByLabelText(/Licence \/ Registration number/i), {
+      target: { value: 'AFA/2026/123' },
+    })
+    fireEvent.change(screen.getByLabelText(/Contact person name/i), {
+      target: { value: 'John Kamau' },
+    })
+    fireEvent.change(screen.getByLabelText(/Business phone number/i), {
+      target: { value: '0712345678' },
+    })
     fireEvent.click(screen.getByRole('checkbox'))
 
     fireEvent.submit(screen.getByRole('button', { name: /Submit Application/i }).closest('form')!)
 
-    expect(await screen.findByText('Phone number must be in +254 format (e.g. +254712345678).')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Phone number must be in +254 format (e.g. +254712345678).'),
+    ).toBeInTheDocument()
     expect(mockApply).not.toHaveBeenCalled()
   })
 
@@ -75,26 +88,37 @@ describe('AgrodealerApplication Component', () => {
 
     render(<AgrodealerApplication onSuccess={mockSuccess} onCancel={mockCancel} />)
 
-    fireEvent.change(screen.getByLabelText(/Business name/i), { target: { value: 'Nakuru Inputs' } })
-    fireEvent.change(screen.getByLabelText(/Licence \/ Registration number/i), { target: { value: 'AFA/2026/123' } })
-    fireEvent.change(screen.getByLabelText(/Contact person name/i), { target: { value: 'John Kamau' } })
+    fireEvent.change(screen.getByLabelText(/Business name/i), {
+      target: { value: 'Nakuru Inputs' },
+    })
+    fireEvent.change(screen.getByLabelText(/Licence \/ Registration number/i), {
+      target: { value: 'AFA/2026/123' },
+    })
+    fireEvent.change(screen.getByLabelText(/Contact person name/i), {
+      target: { value: 'John Kamau' },
+    })
     fireEvent.change(screen.getByLabelText(/Sub-County/i), { target: { value: 'Njoro' } })
     fireEvent.change(screen.getByLabelText(/Ward/i), { target: { value: 'Mau Narok' } })
-    fireEvent.change(screen.getByLabelText(/Business phone number/i), { target: { value: '+254712345678' } })
+    fireEvent.change(screen.getByLabelText(/Business phone number/i), {
+      target: { value: '+254712345678' },
+    })
     fireEvent.click(screen.getByRole('checkbox'))
 
     fireEvent.submit(screen.getByRole('button', { name: /Submit Application/i }).closest('form')!)
 
     await waitFor(() => {
-      expect(mockApply).toHaveBeenCalledWith('valid-dealer-jwt', expect.objectContaining({
-        businessName: 'Nakuru Inputs',
-        licenceNumber: 'AFA/2026/123',
-        contactName: 'John Kamau',
-        county: 'Nakuru',
-        subCounty: 'Njoro',
-        ward: 'Mau Narok',
-        phoneNumber: '+254712345678',
-      }))
+      expect(mockApply).toHaveBeenCalledWith(
+        'valid-dealer-jwt',
+        expect.objectContaining({
+          businessName: 'Nakuru Inputs',
+          licenceNumber: 'AFA/2026/123',
+          contactName: 'John Kamau',
+          county: 'Nakuru',
+          subCounty: 'Njoro',
+          ward: 'Mau Narok',
+          phoneNumber: '+254712345678',
+        }),
+      )
       expect(mockRefreshRoles).toHaveBeenCalledTimes(1)
       expect(mockSuccess).toHaveBeenCalledTimes(1)
     })
@@ -105,14 +129,22 @@ describe('AgrodealerApplication Component', () => {
 
     render(<AgrodealerApplication onSuccess={mockSuccess} onCancel={mockCancel} />)
 
-    fireEvent.change(screen.getByLabelText(/Business name/i), { target: { value: 'Nakuru Inputs' } })
-    fireEvent.change(screen.getByLabelText(/Licence \/ Registration number/i), { target: { value: 'AFA/2026/123' } })
-    fireEvent.change(screen.getByLabelText(/Contact person name/i), { target: { value: 'John Kamau' } })
+    fireEvent.change(screen.getByLabelText(/Business name/i), {
+      target: { value: 'Nakuru Inputs' },
+    })
+    fireEvent.change(screen.getByLabelText(/Licence \/ Registration number/i), {
+      target: { value: 'AFA/2026/123' },
+    })
+    fireEvent.change(screen.getByLabelText(/Contact person name/i), {
+      target: { value: 'John Kamau' },
+    })
     fireEvent.click(screen.getByRole('checkbox'))
 
     fireEvent.submit(screen.getByRole('button', { name: /Submit Application/i }).closest('form')!)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('A licence with this number is already registered.')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A licence with this number is already registered.',
+    )
     expect(mockSuccess).not.toHaveBeenCalled()
   })
 })

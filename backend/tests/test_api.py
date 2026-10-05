@@ -1340,7 +1340,11 @@ def test_farmer_repository_sql_scopes_records_to_owner(monkeypatch) -> None:
     database.load_farmer_recommendation_feedback(user_id, recommendation_id)
 
     normalized_calls = [(" ".join(query.lower().split()), parameters) for query, parameters in recording_cursor.calls]
-    assert "where id = %s and role = 'farmer' and is_active = true" in normalized_calls[0][0]
+    assert (
+        "where users.id = %s and users.role = 'farmer' and users.is_active = true"
+        in normalized_calls[0][0]
+    )
+    assert "coalesce(profiles.phone_number, users.phone) as phone" in normalized_calls[0][0]
     assert normalized_calls[0][1] == (user_id,)
     assert "where owner_id = %s" in normalized_calls[1][0]
     assert normalized_calls[1][1] == (user_id,)
@@ -2694,6 +2698,99 @@ def test_officer_field_collection_workflow(monkeypatch) -> None:
         json=payload,
     )
     assert denied.status_code == 403
+
+
+def test_record_field_collection_parses_measurements_and_rates(monkeypatch) -> None:
+    from app import database
+
+    class MockCursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[Any, ...] | None]] = []
+            self.row: dict[str, Any] | None = None
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+            pass
+
+        def execute(self, query: str, params: tuple[Any, ...] | None = None) -> None:
+            normalized = " ".join(query.lower().split())
+            self.calls.append((normalized, params))
+            self.row = None
+            if normalized.startswith("select v.id"):
+                self.row = {
+                    "id": "visit-1",
+                    "farm_id": "farm-1",
+                    "farmer_id": "farmer-1",
+                    "status": "claimed",
+                    "farm_name": "North plot",
+                    "farmer_name": "Amina",
+                    "county": "Nyeri",
+                    "sub_county": "Mukurweini",
+                    "ward": "Rugi",
+                    "size_acres": 2.0,
+                    "crops": "maize",
+                }
+            elif normalized.startswith("insert into soil_readings"):
+                self.row = {"id": "reading-1"}
+            elif normalized.startswith("insert into agronomic_assessments"):
+                self.row = {"id": "assessment-1"}
+
+        def fetchone(self) -> dict[str, Any] | None:
+            return self.row
+
+    class MockConnection:
+        def __init__(self, cursor: MockCursor) -> None:
+            self.mock_cursor = cursor
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+            pass
+
+        def cursor(self) -> MockCursor:
+            return self.mock_cursor
+
+    mock_cursor = MockCursor()
+    monkeypatch.setattr(database, "_connect", lambda: MockConnection(mock_cursor))
+    monkeypatch.setattr(
+        database,
+        "generate_agronomic_assessment",
+        lambda **_: {
+            "engineVersion": "test-rules",
+            "prescriptions": [{"ratePerHa": "1.8 t/ha"}],
+        },
+    )
+
+    result = database.record_officer_field_collection(
+        officer_user_id="officer-1",
+        visit_id="visit-1",
+        latitude=-0.4,
+        longitude=36.9,
+        measurements=[
+            {
+                "analyte": "soil_ph",
+                "source_analyte": "soil_ph",
+                "value": "5.8",
+                "source_unit": "pH",
+            }
+        ],
+    )
+
+    assert result is not None
+    assert result["readingId"] == "reading-1"
+    measurement_params = next(
+        params for query, params in mock_cursor.calls if query.startswith("insert into soil_measurements")
+    )
+    assert measurement_params is not None
+    assert measurement_params[3] == 5.8
+    recommendation_params = next(
+        params for query, params in mock_cursor.calls if query.startswith("insert into recommendations")
+    )
+    assert recommendation_params is not None
+    assert recommendation_params[6:8] == (1.8, "t/ha")
 
 
 def test_officer_alerts_workflow_and_triage(monkeypatch) -> None:
@@ -4290,6 +4387,7 @@ def test_activate_account_invitation_database(monkeypatch) -> None:
                     "status": "pending",
                     "is_active": True,
                     "app_role": "extension_officer",
+                    "agronomist_approval_status": None,
                 }
             if "update user_roles" in query:
                 return {"user_id": "auth-user-001"}
@@ -4371,6 +4469,217 @@ def test_activate_account_invitation_does_not_restore_suspended_user(monkeypatch
     assert result is None
     assert len(MockCursor.calls) == 1
     assert "for update of invitation, users" in " ".join(MockCursor.calls[0].lower().split())
+
+
+def test_activate_pending_agronomist_keeps_role_unapproved(monkeypatch) -> None:
+    from typing import Self
+
+    from app import database
+
+    class MockCursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...] | None]] = []
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, query: str, params: tuple[object, ...] | None = None) -> None:
+            self.calls.append((query, params))
+
+        def fetchone(self) -> dict[str, object] | None:
+            query = self.calls[-1][0].lower()
+            if "from account_invitations" in query:
+                return {
+                    "role": "agronomist",
+                    "status": "pending",
+                    "is_active": True,
+                    "app_role": "agronomist",
+                    "agronomist_approval_status": "pending",
+                }
+            if "update user_roles" in query:
+                return {"user_id": "auth-user-001"}
+            if "update users" in query:
+                return {"id": "agronomist-user-001"}
+            if "update account_invitations" in query:
+                return {"auth_user_id": "auth-user-001"}
+            return None
+
+    class MockConnection:
+        def __init__(self, cursor: MockCursor) -> None:
+            self.c = cursor
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> MockCursor:
+            return self.c
+
+        def commit(self) -> None:
+            pass
+
+    mock_cursor = MockCursor()
+    monkeypatch.setattr(database, "_connect", lambda: MockConnection(mock_cursor))
+
+    assert database.activate_account_invitation("auth-user-001") == "agronomist"
+    role_update = next(
+        params
+        for query, params in mock_cursor.calls
+        if "update user_roles" in query.lower()
+    )
+    assert role_update is not None and role_update[0] == "pending"
+    user_update = next(
+        params for query, params in mock_cursor.calls if "update users" in query.lower()
+    )
+    assert user_update is not None and user_update[:2] == ("pending", "pending")
+
+
+def test_update_own_profile_updates_only_allowlisted_fields(monkeypatch) -> None:
+    import app.main as main_module
+
+    auth_subject = "4e9e9b0d-52a3-4a5f-a08c-0b8b75aaff10"
+    updates: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        main_module,
+        "get_verified_supabase_user",
+        lambda _token: SimpleNamespace(id=auth_subject),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_linked_supabase_profile",
+        lambda _subject: {"id": "farmer-app-id", "is_active": True},
+    )
+
+    def update_profile(auth_user_id: str, full_name: str, phone_number: str | None):
+        updates.append((full_name, phone_number))
+        return {
+            "id": auth_user_id,
+            "fullName": full_name,
+            "county": "Nakuru",
+            "subCounty": "Naivasha",
+            "ward": "Ward 1",
+            "phoneNumber": phone_number,
+        }
+
+    monkeypatch.setattr(main_module, "update_user_profile", update_profile)
+
+    response = client.patch(
+        "/api/v1/profile/me",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "fullName": "  Amina Kimani ",
+            "phoneNumber": "+254712345678",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["fullName"] == "Amina Kimani"
+    assert response.json()["phoneNumber"] == "+254712345678"
+    assert response.json()["county"] == "Nakuru"
+    assert updates == [("Amina Kimani", "+254712345678")]
+
+    forbidden_field_response = client.patch(
+        "/api/v1/profile/me",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "fullName": "Amina Kimani",
+            "phoneNumber": "+254712345678",
+            "role": "admin",
+            "approvalStatus": "approved",
+            "county": "Mombasa",
+        },
+    )
+    assert forbidden_field_response.status_code == 422
+    assert updates == [("Amina Kimani", "+254712345678")]
+
+    invalid_phone_response = client.patch(
+        "/api/v1/profile/me",
+        headers={"Authorization": "Bearer test-token"},
+        json={"fullName": "Amina Kimani", "phoneNumber": "0712345678"},
+    )
+    assert invalid_phone_response.status_code == 422
+    assert updates == [("Amina Kimani", "+254712345678")]
+
+
+def test_update_user_profile_persists_only_contact_and_name_fields(monkeypatch) -> None:
+    from typing import Self
+
+    from app import database
+
+    class MockCursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...] | None]] = []
+            self.results = iter(
+                [
+                    {"id": "app-user-id"},
+                    {
+                        "id": "auth-user-id",
+                        "full_name": "Amina Kimani",
+                        "county": "Nakuru",
+                        "sub_county": "Naivasha",
+                        "ward": "Ward 1",
+                        "phone_number": "+254712345678",
+                    },
+                ]
+            )
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, query: str, params: tuple[object, ...] | None = None) -> None:
+            self.calls.append((query, params))
+
+        def fetchone(self) -> dict[str, object]:
+            return next(self.results)
+
+    class MockConnection:
+        def __init__(self, cursor: MockCursor) -> None:
+            self.mock_cursor = cursor
+            self.committed = False
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> MockCursor:
+            return self.mock_cursor
+
+        def commit(self) -> None:
+            self.committed = True
+
+    mock_cursor = MockCursor()
+    connection = MockConnection(mock_cursor)
+    monkeypatch.setattr(database, "_connect", lambda: connection)
+
+    result = database.update_user_profile(
+        "auth-user-id", " Amina Kimani ", "+254712345678"
+    )
+
+    assert result == {
+        "id": "auth-user-id",
+        "fullName": "Amina Kimani",
+        "county": "Nakuru",
+        "subCounty": "Naivasha",
+        "ward": "Ward 1",
+        "phoneNumber": "+254712345678",
+    }
+    user_update, profile_upsert = mock_cursor.calls
+    assert "set display_name = %s" in user_update[0].lower()
+    assert user_update[1] == ("Amina Kimani", "auth-user-id")
+    assert "set full_name = excluded.full_name" in profile_upsert[0].lower()
+    assert "county =" not in profile_upsert[0].lower()
+    assert "role =" not in user_update[0].lower()
+    assert connection.committed
 
 
 def test_validate_admin_password_policy() -> None:
@@ -4545,12 +4854,16 @@ def test_assessment_review_and_publication_workflow(monkeypatch) -> None:
     test_client = TestClient(main.app)
     agronomist_id = "agronomist-uuid-1"
     agronomist_subject = "bbaabb01-52a3-4a5f-a08c-0b8b75aaff01"
+    pending_agronomist_id = "pending-agronomist-uuid-1"
+    pending_agronomist_subject = "dbaabb01-52a3-4a5f-a08c-0b8b75aaff01"
     farmer_id = "farmer-uuid-1"
     farmer_subject = "ccaabb02-52a3-4a5f-a08c-0b8b75aaff02"
 
     def mock_user(token: str):
         if token == "agronomist-token":
             return SimpleNamespace(id=agronomist_subject)
+        if token == "pending-agronomist-token":
+            return SimpleNamespace(id=pending_agronomist_subject)
         if token == "farmer-token":
             return SimpleNamespace(id=farmer_subject)
         return None
@@ -4558,6 +4871,13 @@ def test_assessment_review_and_publication_workflow(monkeypatch) -> None:
     def mock_profile(subject: str):
         if subject == agronomist_subject:
             return {"id": agronomist_id, "role": "agronomist", "display_name": "Dr. Sarah Agronomist", "is_active": True}
+        if subject == pending_agronomist_subject:
+            return {
+                "id": pending_agronomist_id,
+                "role": "agronomist",
+                "display_name": "Pending Agronomist",
+                "is_active": True,
+            }
         if subject == farmer_subject:
             return {"id": farmer_id, "role": "farmer", "display_name": "Peter Farmer", "is_active": True}
         return None
@@ -4565,6 +4885,8 @@ def test_assessment_review_and_publication_workflow(monkeypatch) -> None:
     def mock_roles(subject: str):
         if subject == agronomist_subject:
             return [{"role": "agronomist", "status": "active"}]
+        if subject == pending_agronomist_subject:
+            return [{"role": "agronomist", "status": "pending"}]
         if subject == farmer_subject:
             return [{"role": "farmer", "status": "active"}]
         return []
@@ -4595,6 +4917,32 @@ def test_assessment_review_and_publication_workflow(monkeypatch) -> None:
     assert res.status_code == 200
     assert len(res.json()) == 1
     assert res.json()[0]["assessmentId"] == "assess-1"
+
+    pending_claim_res = test_client.post(
+        "/api/v1/assessments/assess-1/claim",
+        headers={"Authorization": "Bearer pending-agronomist-token"},
+    )
+    assert pending_claim_res.status_code == 403
+
+    farmer_claim_res = test_client.post(
+        "/api/v1/assessments/assess-1/claim",
+        headers={"Authorization": "Bearer farmer-token"},
+    )
+    assert farmer_claim_res.status_code == 403
+
+    pending_publish_res = test_client.post(
+        "/api/v1/assessments/assess-1/publish",
+        headers={"Authorization": "Bearer pending-agronomist-token"},
+        json={},
+    )
+    assert pending_publish_res.status_code == 403
+
+    farmer_publish_res = test_client.post(
+        "/api/v1/assessments/assess-1/publish",
+        headers={"Authorization": "Bearer farmer-token"},
+        json={},
+    )
+    assert farmer_publish_res.status_code == 403
 
     # 2. Farmer cannot access unverified assessment report -> 404
     monkeypatch.setattr(main, "load_farm_verified_report", lambda user_id, farm_id: None)
@@ -4677,4 +5025,3 @@ def test_assessment_review_and_publication_workflow(monkeypatch) -> None:
     assert report_res.status_code == 200
     assert report_res.json()["reportId"] == "report-verified-101"
     assert report_res.json()["status"] == "verified"
-

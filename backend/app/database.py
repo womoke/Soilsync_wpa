@@ -12,8 +12,12 @@ from app.models import (
     SoilReading,
     SoilRecommendation,
 )
-from app.recommendations import generate_agronomic_assessment
-from app.supabase_client import SupabaseIdentityUnavailableError, send_farmer_claim_reminder
+from app.recommendations import _safe_float, generate_agronomic_assessment
+from app.supabase_client import (
+    SupabaseIdentityUnavailableError,
+    delete_supabase_user,
+    send_farmer_claim_reminder,
+)
 
 try:
     import psycopg
@@ -189,9 +193,11 @@ def load_farmer_account(user_id: str) -> dict[str, Any] | None:
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT id, email, phone, display_name
+            SELECT users.id, users.email, COALESCE(profiles.phone_number, users.phone) AS phone,
+                   users.display_name
             FROM users
-            WHERE id = %s AND role = 'farmer' AND is_active = TRUE
+            LEFT JOIN profiles ON profiles.id = users.supabase_auth_user_id
+            WHERE users.id = %s AND users.role = 'farmer' AND users.is_active = TRUE
             """,
             (user_id,),
         )
@@ -204,6 +210,59 @@ def load_farmer_account(user_id: str) -> dict[str, Any] | None:
             "phone": row["phone"],
             "name": row["display_name"],
         }
+
+
+@_database_errors_as_unavailable
+def update_user_profile(
+    auth_user_id: str,
+    full_name: str,
+    phone_number: str | None,
+) -> dict[str, Any] | None:
+    """Update only the authenticated user's editable profile fields."""
+    normalized_name = full_name.strip()
+    if not normalized_name:
+        return None
+
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE users
+            SET display_name = %s, updated_at = NOW()
+            WHERE supabase_auth_user_id = %s
+              AND is_active = TRUE
+            RETURNING id
+            """,
+            (normalized_name, auth_user_id),
+        )
+        app_user = cursor.fetchone()
+        if app_user is None:
+            return None
+
+        cursor.execute(
+            """
+            INSERT INTO profiles (id, full_name, phone_number)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (id) DO UPDATE
+            SET full_name = EXCLUDED.full_name,
+                phone_number = EXCLUDED.phone_number,
+                updated_at = NOW()
+            RETURNING id, full_name, county, sub_county, ward, phone_number
+            """,
+            (auth_user_id, normalized_name, phone_number),
+        )
+        profile = cursor.fetchone()
+        if profile is None:
+            raise DatabaseUnavailable("The profile update did not return the saved profile.")
+        connection.commit()
+
+    return {
+        "id": str(profile["id"]),
+        "fullName": profile["full_name"],
+        "county": profile["county"],
+        "subCounty": profile["sub_county"],
+        "ward": profile["ward"],
+        "phoneNumber": profile["phone_number"],
+    }
 
 
 @_database_errors_as_unavailable
@@ -1142,7 +1201,7 @@ def submit_agrodealer_application(
         try:
             cursor.execute(
                 """
-                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
                 VALUES (%s, 'dealer_application_submitted', 'agrodealer_profile', %s, %s, %s)
                 """,
                 (
@@ -1932,7 +1991,7 @@ def create_admin_audit_entry(
                 pass
             cursor.execute(
                 """
-                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
                 VALUES (%s, %s, %s, %s, %s::jsonb, %s)
                 """,
                 (
@@ -2313,7 +2372,7 @@ def admin_invite_officer(
         try:
             cursor.execute(
                 """
-                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
                 VALUES (%s, 'officer_invited', 'officer_jurisdiction', %s, %s, %s)
                 """,
                 (
@@ -2474,7 +2533,7 @@ def admin_invite_agrodealer(
         )
         cursor.execute(
             """
-            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
             VALUES (%s, 'agrodealer_invited', 'user', %s, %s, %s)
             """,
             (
@@ -2509,9 +2568,11 @@ def activate_account_invitation(auth_user_id: str) -> str | None:
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT invitation.role, invitation.status, users.is_active, users.role AS app_role
+            SELECT invitation.role, invitation.status, users.is_active, users.role AS app_role,
+                   agronomist_profiles.approval_status AS agronomist_approval_status
             FROM account_invitations AS invitation
             JOIN users ON users.supabase_auth_user_id = invitation.auth_user_id
+            LEFT JOIN agronomist_profiles ON agronomist_profiles.user_id = users.id
             WHERE invitation.auth_user_id = %s
             FOR UPDATE OF invitation, users
             """,
@@ -2530,25 +2591,43 @@ def activate_account_invitation(auth_user_id: str) -> str | None:
         if invitation["status"] not in ("pending", "unclaimed"):
             return None
 
+        role_status = "active"
+        if role == "agronomist" and invitation["agronomist_approval_status"] != "approved":
+            role_status = "pending"
         cursor.execute(
             """
             UPDATE user_roles
-            SET status = 'active', approved_at = %s, updated_at = %s
+            SET status = %s, approved_at = %s, updated_at = %s
             WHERE user_id = %s AND role = %s AND status IN ('pending', 'active', 'unclaimed')
             RETURNING user_id
             """,
-            (now, now, auth_user_id, role),
+            (role_status, now if role_status == "active" else None, now, auth_user_id, role),
         )
         if cursor.fetchone() is None:
             return None
         cursor.execute(
             """
             UPDATE users
-            SET approval_status = 'approved', approved_at = %s, updated_at = %s
+            SET approval_status = CASE
+                    WHEN role = 'agronomist' AND %s <> 'approved' THEN approval_status
+                    ELSE 'approved'
+                END,
+                approved_at = CASE
+                    WHEN role = 'agronomist' AND %s <> 'approved' THEN approved_at
+                    ELSE %s
+                END,
+                updated_at = %s
             WHERE supabase_auth_user_id = %s AND role = %s AND is_active = TRUE
             RETURNING id
             """,
-            (now, now, auth_user_id, expected_app_role),
+            (
+                invitation.get("agronomist_approval_status") or "pending",
+                invitation.get("agronomist_approval_status") or "pending",
+                now,
+                now,
+                auth_user_id,
+                expected_app_role,
+            ),
         )
         if cursor.fetchone() is None:
             raise DatabaseUnavailable("The invited account could not be activated.")
@@ -2722,7 +2801,7 @@ def admin_invite_agronomist(
         )
         cursor.execute(
             """
-            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
             VALUES (%s, 'agronomist_invited', 'user', %s, %s, %s)
             """,
             (
@@ -2808,7 +2887,7 @@ def admin_approve_agronomist(
 
         cursor.execute(
             """
-            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
             VALUES (%s, 'agronomist_approval_updated', 'user', %s, %s, %s)
             """,
             (
@@ -2952,7 +3031,7 @@ def officer_register_unclaimed_farmer(
 
         cursor.execute(
             """
-            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
             VALUES (%s, 'unclaimed_farmer_registered', 'user', %s, %s, %s)
             """,
             (
@@ -3094,7 +3173,7 @@ def process_unclaimed_farmer_reminders() -> dict[str, Any]:
             )
             cursor.execute(
                 """
-                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
                 VALUES (NULL, 'unclaimed_farmer_reminder_sent', 'user', %s, %s, %s)
                 """,
                 (
@@ -3134,6 +3213,14 @@ def process_unclaimed_farmer_cleanup() -> dict[str, Any]:
             farmer_user_id = str(row["farmer_user_id"])
             initial_farm_id = str(row["initial_farm_id"]) if row["initial_farm_id"] else None
 
+            cursor.execute(
+                """
+                INSERT INTO unclaimed_auth_cleanup_queue (auth_user_id)
+                VALUES (%s)
+                ON CONFLICT (auth_user_id) DO NOTHING
+                """,
+                (auth_user_id,),
+            )
             if initial_farm_id:
                 cursor.execute("DELETE FROM farms WHERE id = %s", (initial_farm_id,))
 
@@ -3145,7 +3232,7 @@ def process_unclaimed_farmer_cleanup() -> dict[str, Any]:
 
             cursor.execute(
                 """
-                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+                INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
                 VALUES (NULL, 'unclaimed_account_expired_and_deleted', 'user', %s, %s, %s)
                 """,
                 (
@@ -3163,10 +3250,52 @@ def process_unclaimed_farmer_cleanup() -> dict[str, Any]:
             deleted_count += 1
         connection.commit()
 
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT auth_user_id
+            FROM unclaimed_auth_cleanup_queue
+            ORDER BY queued_at
+            """
+        )
+        pending_auth_deletions = [str(row["auth_user_id"]) for row in cursor.fetchall()]
+
+    failures = 0
+    for auth_user_id in pending_auth_deletions:
+        try:
+            delete_supabase_user(auth_user_id)
+        except SupabaseIdentityUnavailableError:
+            with _connect() as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE unclaimed_auth_cleanup_queue
+                    SET attempts = attempts + 1,
+                        last_attempt_at = %s,
+                        last_error = 'Supabase Auth deletion failed'
+                    WHERE auth_user_id = %s
+                    """,
+                    (datetime.now(UTC), auth_user_id),
+                )
+                connection.commit()
+            failures += 1
+            continue
+
+        with _connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM unclaimed_auth_cleanup_queue WHERE auth_user_id = %s",
+                (auth_user_id,),
+            )
+            connection.commit()
+
+    if failures:
+        raise DatabaseUnavailable(
+            f"Local cleanup completed, but Supabase Auth deletion failed for {failures} account(s); deletion remains queued for retry."
+        )
+
     return {
         "processedCount": len(expired),
         "expiredAndDeleted": deleted_count,
-        "message": f"Expired and cleanly deleted {deleted_count} unclaimed farmer account(s).",
+        "message": f"Expired and cleanly deleted {deleted_count} unclaimed farmer account(s), including their Supabase Auth identities.",
     }
 
 
@@ -3193,7 +3322,7 @@ def resend_account_invitation(actor_user_id: str, auth_user_id: str) -> dict[str
         )
         cursor.execute(
             """
-            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
             VALUES (%s, 'account_invitation_resent', 'invitation', %s, %s, %s)
             """,
             (
@@ -3244,7 +3373,7 @@ def cancel_account_invitation(actor_user_id: str, auth_user_id: str) -> dict[str
         )
         cursor.execute(
             """
-            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+            INSERT INTO audit_log (actor_id, action, target_type, target_id, details, timestamp)
             VALUES (%s, 'account_invitation_cancelled', 'invitation', %s, %s, %s)
             """,
             (
@@ -3855,17 +3984,21 @@ def load_unverified_assessments(
                 FROM agronomic_assessments AS a
                 JOIN farms AS f ON f.id = a.farm_id
                 JOIN users AS u ON u.id = f.owner_id
+                JOIN agronomist_profiles AS ap ON ap.user_id = %s
                 WHERE a.status = 'unverified'
+                  AND ap.approval_status = 'approved'
                   AND (
-                      a.claiming_agronomist_id = %s
+                      a.claiming_agronomist_id = ap.user_id
                       OR (
                           a.claiming_agronomist_id IS NULL
-                          AND (%s IS NULL OR a.county ILIKE %s)
+                          AND ap.county IS NOT NULL
+                          AND a.county ILIKE ap.county
+                          AND (%s::text IS NULL OR a.county ILIKE %s)
                       )
                   )
                 ORDER BY a.created_at DESC
                 """,
-                (user_id, county, f"%{county}%" if county else None),
+                (user_id, county, county),
             )
         else:
             return []
@@ -3903,17 +4036,25 @@ def claim_agronomic_assessment(agronomist_user_id: str, assessment_id: str) -> d
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
-            UPDATE agronomic_assessments
+            UPDATE agronomic_assessments AS a
             SET claiming_agronomist_id = %s,
                 review_stage = 'claimed',
                 claimed_at = NOW(),
                 updated_at = NOW()
-            WHERE id = %s
+            WHERE a.id = %s
               AND status = 'unverified'
-              AND (claiming_agronomist_id IS NULL OR claiming_agronomist_id = %s)
+              AND (a.claiming_agronomist_id IS NULL OR a.claiming_agronomist_id = %s)
+              AND EXISTS (
+                  SELECT 1
+                  FROM agronomist_profiles AS ap
+                  WHERE ap.user_id = %s
+                    AND ap.approval_status = 'approved'
+                    AND ap.county IS NOT NULL
+                    AND a.county ILIKE ap.county
+              )
             RETURNING id, farm_id, claiming_agronomist_id, review_stage, status, county
             """,
-            (agronomist_user_id, assessment_id, agronomist_user_id),
+            (agronomist_user_id, assessment_id, agronomist_user_id, agronomist_user_id),
         )
         row = cursor.fetchone()
         if row is None:

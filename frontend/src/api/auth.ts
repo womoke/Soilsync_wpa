@@ -1,4 +1,9 @@
-export type AppRole = 'farmer' | 'extension_officer' | 'agrodealer' | 'admin'
+export type AppRole =
+  | 'farmer'
+  | 'extension_officer'
+  | 'agrodealer'
+  | 'agronomist'
+  | 'admin'
 
 export interface LinkedAppProfile {
   status: 'linked'
@@ -12,6 +17,7 @@ function isAppRole(value: unknown): value is AppRole {
     value === 'farmer' ||
     value === 'extension_officer' ||
     value === 'agrodealer' ||
+    value === 'agronomist' ||
     value === 'admin'
   )
 }
