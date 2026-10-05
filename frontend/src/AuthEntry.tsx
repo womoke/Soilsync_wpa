@@ -12,6 +12,19 @@ interface AuthEntryProps {
 
 type AuthMode = 'sign-in' | 'register' | 'reset-request' | 'update-password'
 
+interface AuthCallbackTokens {
+  accessToken: string
+  refreshToken: string
+}
+
+function readAuthCallbackTokens(): AuthCallbackTokens | null {
+  if (window.location.pathname.toLowerCase() !== '/reset-password') return null
+  const callbackParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const accessToken = callbackParams.get('access_token')
+  const refreshToken = callbackParams.get('refresh_token')
+  return accessToken && refreshToken ? { accessToken, refreshToken } : null
+}
+
 function hasInvitationCallback(): boolean {
   const url = new URL(window.location.href)
   const callbackParams = new URLSearchParams(url.hash.replace(/^#/, ''))
@@ -57,6 +70,7 @@ function getDisplayName(session: Session): string | undefined {
 export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
   const supabase = getSupabaseClient()
   const onAuthenticatedRef = useRef(onAuthenticated)
+  const authCallbackTokens = useRef(readAuthCallbackTokens())
   const [mode, setMode] = useState<AuthMode>(() =>
     window.location.pathname.toLowerCase() === '/reset-password' ||
     hasInvitationCallback() ||
@@ -117,21 +131,38 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
       if (event === 'PASSWORD_RECOVERY') setMode('update-password')
     })
 
-    void supabase.auth
-      .getSession()
-      .then(async ({ data, error: sessionError }) => {
+    void (async () => {
+      try {
+        const { data, error: sessionError } = await supabase.auth.getSession()
         if (!active) return
-        if (sessionError) throw sessionError
+        if (sessionError && !authCallbackTokens.current) throw sessionError
+        let session = data.session
+        if (!session && authCallbackTokens.current) {
+          const { data: restoredSession, error: restoreError } = await supabase.auth.setSession({
+            access_token: authCallbackTokens.current.accessToken,
+            refresh_token: authCallbackTokens.current.refreshToken,
+          })
+          if (restoreError) throw restoreError
+          session = restoredSession.session
+          if (session) {
+            authCallbackTokens.current = null
+            window.history.replaceState(
+              {},
+              '',
+              `${window.location.pathname}${window.location.search}`,
+            )
+          }
+        }
         if (
-          !data.session ||
+          !session ||
           window.location.pathname.toLowerCase() === '/reset-password' ||
           isInvitationActivation
         ) return
-        await finishSignIn(data.session, getDisplayName(data.session), () => active)
-      })
-      .catch((sessionError: unknown) => {
+        await finishSignIn(session, getDisplayName(session), () => active)
+      } catch (sessionError: unknown) {
         if (active) setError(getErrorMessage(sessionError))
-      })
+      }
+    })()
 
     return () => {
       active = false

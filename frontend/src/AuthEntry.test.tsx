@@ -271,6 +271,47 @@ describe('AuthEntry', () => {
     window.history.replaceState(null, '', '/')
   })
 
+  it('restores an invitation session from the token fragment when automatic detection misses it', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/reset-password?invite=1#access_token=invite-access-token&refresh_token=invite-refresh-token&type=invite',
+    )
+    const session = {
+      access_token: 'invite-access-token',
+      user: { user_metadata: { display_name: 'Invited Officer' } },
+    }
+    let currentSession: typeof session | null = null
+    const getSession = vi.fn().mockImplementation(async () => ({
+      data: { session: currentSession },
+      error: null,
+    }))
+    const setSession = vi.fn().mockImplementation(async () => {
+      currentSession = session
+      return { data: { session }, error: null }
+    })
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession,
+        setSession,
+      },
+    })
+
+    render(<AuthEntry onAuthenticated={vi.fn()} />)
+
+    expect(await screen.findByLabelText('New password')).toBeInTheDocument()
+    expect(setSession).toHaveBeenCalledWith({
+      access_token: 'invite-access-token',
+      refresh_token: 'invite-refresh-token',
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(window.location.hash).toBe('')
+    window.history.replaceState(null, '', '/')
+  })
+
   it('claims an officer-registered farmer after setting a password from a reminder link', async () => {
     window.history.replaceState(
       null,
