@@ -176,7 +176,12 @@ def test_ensure_admin_default_permissions_grants_missing_permissions(monkeypatch
     assert [params[1] for _, params in grant_calls if params is not None] == list(
         database.DEFAULT_ADMIN_PERMISSIONS
     )
-    assert all("ON CONFLICT (admin_user_id, permission) DO NOTHING" in query for query, _ in grant_calls)
+    assert all(
+        "ON CONFLICT (admin_user_id, permission) DO UPDATE" in query
+        and "expires_at = NULL" in query
+        and "is_active = TRUE" in query
+        for query, _ in grant_calls
+    )
 
 
 def test_ensure_admin_default_permissions_does_not_grant_non_admin(monkeypatch) -> None:

@@ -1930,7 +1930,10 @@ def ensure_admin_default_permissions(admin_user_id: str) -> list[str]:
                 """
                 INSERT INTO admin_permissions (admin_user_id, permission, granted_by, expires_at, is_active)
                 VALUES (%s, %s, %s, NULL, TRUE)
-                ON CONFLICT (admin_user_id, permission) DO NOTHING
+                ON CONFLICT (admin_user_id, permission) DO UPDATE
+                SET expires_at = NULL,
+                    is_active = TRUE,
+                    updated_at = NOW()
                 """,
                 (admin_user_id, permission, admin_user_id),
             )
