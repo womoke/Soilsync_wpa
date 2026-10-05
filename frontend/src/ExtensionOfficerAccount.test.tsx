@@ -509,6 +509,28 @@ describe('ExtensionOfficerAccount component', () => {
     })
   })
 
+  it('shows field collection validation errors in the open modal', async () => {
+    render(<ExtensionOfficerAccount onBackToDemo={vi.fn()} />)
+
+    fireEvent.change(screen.getByPlaceholderText('valid-officer-token'), {
+      target: { value: 'test-officer-token' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use Officer Token' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Collect Field Data/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
+    confirmGpsConsent()
+    fireEvent.click(screen.getByRole('button', { name: /Save & Mark Complete/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Enter valid latitude and longitude coordinates.',
+    )
+    expect(officerApi.recordOfficerFieldCollection).not.toHaveBeenCalled()
+  })
+
   it('automatically captures device coordinates and estimated accuracy for field collection', async () => {
     const originalGeolocation = Object.getOwnPropertyDescriptor(navigator, 'geolocation')
     Object.defineProperty(navigator, 'geolocation', {

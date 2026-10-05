@@ -138,6 +138,7 @@ export default function ExtensionOfficerAccount({
   const [collectionTopCm, setCollectionTopCm] = useState('0')
   const [collectionBottomCm, setCollectionBottomCm] = useState('20')
   const [collectionNotes, setCollectionNotes] = useState('')
+  const [collectionError, setCollectionError] = useState('')
 
   const [exportResult, setExportResult] = useState<OfficerExportResponse | null>(null)
   const [isExporting, setIsExporting] = useState(false)
@@ -460,7 +461,7 @@ export default function ExtensionOfficerAccount({
     const accuracy = Number.parseFloat(collectionUncertainty)
 
     if (!hasLocationConsent || !locationConsentNotes.trim()) {
-      setError(
+      setCollectionError(
         'Coordinates can only be stored with documented farmer consent. Check the consent box and add a brief note before saving.',
       )
       return
@@ -474,16 +475,22 @@ export default function ExtensionOfficerAccount({
       lng < -180 ||
       lng > 180
     ) {
-      setError('Enter valid latitude and longitude coordinates.')
+      setCollectionError('Enter valid latitude and longitude coordinates.')
       return
     }
 
     if (!Number.isFinite(accuracy) || accuracy < 0) {
-      setError('Enter the GPS accuracy radius in meters, or capture a device location.')
+      setCollectionError('Enter the GPS accuracy radius in meters, or capture a device location.')
+      return
+    }
+
+    if (!Number.isFinite(parseFloat(collectionPh))) {
+      setCollectionError('Enter a valid soil pH measurement.')
       return
     }
 
     setIsWorking(true)
+    setCollectionError('')
     setError('')
     setMessage('')
     try {
@@ -544,7 +551,7 @@ export default function ExtensionOfficerAccount({
       }
       setMessage(res.message || 'Field data and GPS coordinates recorded successfully.')
     } catch (err) {
-      setError(getErrorMessage(err))
+      setCollectionError(getErrorMessage(err))
     } finally {
       setIsWorking(false)
     }
@@ -1513,6 +1520,7 @@ export default function ExtensionOfficerAccount({
                       style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem' }}
                       onClick={() => {
                         setCollectionVisit(visit)
+                        setCollectionError('')
                         setCollectionLat('')
                         setCollectionLng('')
                         setCollectionUncertainty('')
@@ -2277,8 +2285,14 @@ export default function ExtensionOfficerAccount({
 
             <form
               onSubmit={handleRecordCollection}
+              noValidate
               style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
             >
+              {collectionError && (
+                <div className="auth-alert is-error" role="alert">
+                  {collectionError}
+                </div>
+              )}
               {/* GPS Coordinates */}
               <div
                 style={{
