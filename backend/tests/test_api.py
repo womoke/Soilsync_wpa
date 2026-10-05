@@ -1,4 +1,6 @@
+import importlib.util
 from datetime import UTC
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Self
 
@@ -116,6 +118,19 @@ def create_test_sync_session(monkeypatch, role: str = "farmer") -> str:
 
 
 client = TestClient(app)
+
+
+def test_default_admin_permission_set_contains_account_management() -> None:
+    script_path = Path(__file__).resolve().parents[1] / "database" / "scripts" / "create_initial_admin.py"
+    spec = importlib.util.spec_from_file_location("create_initial_admin", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    permissions = module.default_admin_permissions()
+    assert "manage_accounts" in permissions
+    assert "view_audit_log" in permissions
+    assert permissions[0] == "view_audit_log"
 
 
 def test_health_check() -> None:
