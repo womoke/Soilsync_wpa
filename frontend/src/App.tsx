@@ -909,7 +909,7 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <SoilSyncLoading label="Opening farmer workspace…" />
+                <SoilSyncLoading label="Opening farmer workspace…" fullScreen />
               }
             >
               <FarmerAccount
@@ -924,7 +924,7 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <SoilSyncLoading label="Opening officer workspace…" />
+                <SoilSyncLoading label="Opening officer workspace…" fullScreen />
               }
             >
               <ExtensionOfficerAccount
@@ -939,7 +939,7 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <SoilSyncLoading label="Opening agrodealer workspace…" />
+                <SoilSyncLoading label="Opening agrodealer workspace…" fullScreen />
               }
             >
               <AgrodealerAccount
@@ -954,7 +954,7 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <SoilSyncLoading label="Opening agronomist workspace…" />
+                <SoilSyncLoading label="Opening agronomist workspace…" fullScreen />
               }
             >
               <AgronomistAccount onBackToDemo={() => navigateTo('/welcome', true)} />
@@ -966,7 +966,7 @@ function AppContent() {
           <div className="app-workspace-shell">
             <Suspense
               fallback={
-                <SoilSyncLoading label="Opening admin workspace…" />
+                <SoilSyncLoading label="Opening admin workspace…" fullScreen />
               }
             >
               <AdminAccount
