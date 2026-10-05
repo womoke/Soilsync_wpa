@@ -2114,7 +2114,7 @@ def admin_list_users(
         return None
     with _connect() as connection, connection.cursor() as cursor:
         query = """
-            SELECT id, display_name, email, phone, role, is_active,
+            SELECT id, supabase_auth_user_id, display_name, email, phone, role, is_active,
                    COALESCE(approval_status, 'approved') AS approval_status,
                    approved_at, revocation_reason, suspended_at, created_at
             FROM users
@@ -2135,6 +2135,11 @@ def admin_list_users(
         return [
             {
                 "userId": str(row["id"]),
+                "authUserId": (
+                    str(row["supabase_auth_user_id"])
+                    if row.get("supabase_auth_user_id")
+                    else None
+                ),
                 "displayName": row["display_name"],
                 "email": row["email"],
                 "phone": row["phone"],

@@ -88,6 +88,7 @@ describe('Phase 1: Identity and Account Lifecycle Flows', () => {
     vi.mocked(adminApi.getAdminUsers).mockResolvedValue([
       {
         userId: 'agro-1',
+        authUserId: 'auth-agro-1',
         email: 'agronomist@kalro.org',
         displayName: 'Dr. Jane Muthoni',
         role: 'agronomist',
@@ -101,6 +102,7 @@ describe('Phase 1: Identity and Account Lifecycle Flows', () => {
       },
       {
         userId: 'farmer-unclaimed-1',
+        authUserId: 'auth-farmer-unclaimed-1',
         email: 'unclaimed.farmer@example.com',
         displayName: 'Peter Njoroge',
         role: 'farmer',
@@ -243,7 +245,7 @@ describe('Phase 1: Identity and Account Lifecycle Flows', () => {
     fireEvent.click(resendButtons[0])
 
     await waitFor(() => {
-      expect(adminApi.resendInvitation).toHaveBeenCalledWith('agro-1', 'test-admin-token')
+      expect(adminApi.resendInvitation).toHaveBeenCalledWith('auth-agro-1', 'test-admin-token')
     })
 
     // Cancel invite
@@ -251,7 +253,10 @@ describe('Phase 1: Identity and Account Lifecycle Flows', () => {
     fireEvent.click(cancelButtons[1])
 
     await waitFor(() => {
-      expect(adminApi.cancelInvitation).toHaveBeenCalledWith('farmer-unclaimed-1', 'test-admin-token')
+      expect(adminApi.cancelInvitation).toHaveBeenCalledWith(
+        'auth-farmer-unclaimed-1',
+        'test-admin-token',
+      )
     })
   })
 

@@ -22,6 +22,7 @@ export type AdminOverview = {
 
 export type AdminUser = {
   userId: string
+  authUserId?: string | null
   displayName: string | null
   email: string
   phone: string | null

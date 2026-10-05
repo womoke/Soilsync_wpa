@@ -41,6 +41,7 @@ const mockPermissions = [
 const mockUsers = [
   {
     userId: 'u-1',
+    authUserId: 'auth-u-1',
     displayName: 'Amina Njeri',
     email: 'amina.njeri@example.com',
     phone: '+254711000111',
@@ -54,6 +55,7 @@ const mockUsers = [
   },
   {
     userId: 'u-2',
+    authUserId: 'auth-u-2',
     displayName: 'Sarah Officer',
     email: 'sarah.officer@example.com',
     phone: null,
@@ -67,6 +69,7 @@ const mockUsers = [
   },
   {
     userId: 'u-3',
+    authUserId: 'auth-u-3',
     displayName: 'Mwangi Agrovets',
     email: 'mwangi@agrovet.test',
     phone: null,

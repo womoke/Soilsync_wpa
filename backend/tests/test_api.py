@@ -321,6 +321,64 @@ def test_admin_provisioning_can_invite_a_new_auth_user_without_password() -> Non
     assert all(row["admin_user_id"] == app_id for row in stored["admin_permissions"])
 
 
+def test_admin_list_users_includes_auth_id_for_invitation_actions(monkeypatch) -> None:
+    from app import database
+
+    auth_user_id = "auth-user-uuid"
+
+    class MockCursor:
+        query = ""
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, query: str, _params: tuple[object, ...] = ()) -> None:
+            self.query = query
+
+        def fetchall(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": "app-user-uuid",
+                    "supabase_auth_user_id": auth_user_id,
+                    "display_name": "Invited Officer",
+                    "email": "officer@example.test",
+                    "phone": None,
+                    "role": "extension_officer",
+                    "is_active": True,
+                    "approval_status": "pending",
+                    "approved_at": None,
+                    "revocation_reason": None,
+                    "suspended_at": None,
+                    "created_at": "2026-10-05T12:00:00+00:00",
+                }
+            ]
+
+    class MockConnection:
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> MockCursor:
+            return cursor
+
+    cursor = MockCursor()
+    connection = MockConnection()
+    monkeypatch.setattr(database, "_connect", lambda: connection)
+    monkeypatch.setattr(database, "check_admin_permission", lambda *_args: True)
+
+    result = database.admin_list_users("admin-profile-id")
+
+    assert result is not None
+    assert result[0]["userId"] == "app-user-uuid"
+    assert result[0]["authUserId"] == auth_user_id
+    assert "supabase_auth_user_id" in cursor.query
+
+
 def test_ensure_admin_default_permissions_grants_missing_permissions(monkeypatch) -> None:
     from app import database
 

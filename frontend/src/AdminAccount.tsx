@@ -699,12 +699,12 @@ export default function AdminAccount({
   }
 
   // Resend Pending Invitation
-  const handleResendInvitation = async (userId: string, userEmail: string) => {
-    if (!effectiveToken) return
+  const handleResendInvitation = async (authUserId: string | null | undefined, userEmail: string) => {
+    if (!effectiveToken || !authUserId) return
     setIsWorking(true)
     setError('')
     try {
-      const res = await resendInvitation(userId, effectiveToken)
+      const res = await resendInvitation(authUserId, effectiveToken)
       setMessage(res.message || `Invitation resent to ${userEmail}.`)
     } catch (err) {
       setError(getErrorMessage(err))
@@ -714,12 +714,12 @@ export default function AdminAccount({
   }
 
   // Cancel Pending Invitation
-  const handleCancelInvitation = async (userId: string, userEmail: string) => {
-    if (!effectiveToken) return
+  const handleCancelInvitation = async (authUserId: string | null | undefined, userEmail: string) => {
+    if (!effectiveToken || !authUserId) return
     setIsWorking(true)
     setError('')
     try {
-      const res = await cancelInvitation(userId, effectiveToken)
+      const res = await cancelInvitation(authUserId, effectiveToken)
       setMessage(res.message || `Invitation for ${userEmail} cancelled.`)
       await refreshData()
     } catch (err) {
@@ -1344,13 +1344,14 @@ export default function AdminAccount({
                                     <UserX size={14} /> Suspend
                                   </button>
                                 )}
-                                {(u.approvalStatus === 'pending' || u.approvalStatus === 'unclaimed') && (
+                                {(u.approvalStatus === 'pending' || u.approvalStatus === 'unclaimed') &&
+                                  u.authUserId && (
                                   <>
                                     <button
                                       type="button"
                                       className="secondary-button"
                                       style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-                                      onClick={() => handleResendInvitation(u.userId, u.email)}
+                                      onClick={() => handleResendInvitation(u.authUserId, u.email)}
                                       title="Resend invitation email"
                                     >
                                       <Send size={12} /> Resend
@@ -1359,7 +1360,7 @@ export default function AdminAccount({
                                       type="button"
                                       className="revoke-btn"
                                       style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-                                      onClick={() => handleCancelInvitation(u.userId, u.email)}
+                                      onClick={() => handleCancelInvitation(u.authUserId, u.email)}
                                       title="Cancel pending invitation"
                                     >
                                       <Trash2 size={12} /> Cancel
