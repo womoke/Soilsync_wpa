@@ -82,7 +82,10 @@ describe('RouteGuard Component', () => {
       </RouteGuard>,
     )
 
-    expect(screen.getByText('Verifying access permissions…')).toBeInTheDocument()
+    expect(
+      screen.getByRole('status', { name: 'Verifying access permissions…' }),
+    ).toBeInTheDocument()
+    expect(document.querySelector('.soilsync-loading-brand')).toBeInTheDocument()
     expect(screen.queryByText('Protected Farmer Workspace')).not.toBeInTheDocument()
   })
 

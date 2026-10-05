@@ -34,6 +34,7 @@ import {
 } from './api/farmer'
 import { KENYA_COUNTIES, getSubCounties, getWards } from './data/kenyaLocations'
 import { getSupabaseClient } from './lib/supabase'
+import { SoilSyncLoading } from './SoilSyncLoading'
 import type { SoilReading, SoilRecommendation } from './types/soil'
 
 type FeedbackResponse = RecommendationFeedback['response']
@@ -462,11 +463,7 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
   }
 
   if (isCheckingSession || (session && !profile && !error)) {
-    return (
-      <section className="account-loading" role="status">
-        Checking secure farmer session…
-      </section>
-    )
+    return <SoilSyncLoading label="Checking secure farmer session…" />
   }
 
   if (!session) {

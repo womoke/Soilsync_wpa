@@ -213,6 +213,23 @@ describe('authenticated farmer workspace', () => {
     expect(authStateListener).toBeDefined()
   })
 
+  it('shows the SoilSync loading mark while checking the farmer session', () => {
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn(() => new Promise(() => {})),
+      },
+    })
+    render(<FarmerAccount onBackToDemo={vi.fn()} />)
+
+    expect(
+      screen.getByRole('status', { name: 'Checking secure farmer session…' }),
+    ).toBeInTheDocument()
+    expect(document.querySelector('.soilsync-loading-brand')).toBeInTheDocument()
+  })
+
   it('explains missing Auth configuration and provides a path back to the role directory', async () => {
     const onBackToDemo = vi.fn()
     getClient.mockReturnValue(null)

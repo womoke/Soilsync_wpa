@@ -2,12 +2,12 @@ import { type FC, type ReactNode } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
-  Loader2,
   ShieldAlert,
 } from 'lucide-react'
 import { useAuth, type AppUserRole } from './context/AuthContext'
 import { FarmerOnboarding } from './FarmerOnboarding'
 import { AgrodealerPendingView } from './AgrodealerPendingView'
+import { SoilSyncLoading } from './SoilSyncLoading'
 import type { Destination } from './App'
 
 export interface RouteGuardProps {
@@ -61,24 +61,7 @@ export const RouteGuard: FC<RouteGuardProps> = ({ destination, onNavigate, child
 
   // 2. Loading session/profile state
   if (isLoading) {
-    return (
-      <div
-        className="route-guard-status"
-        role="status"
-        style={{
-          minHeight: '50vh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '12px',
-          color: 'var(--ink-muted, #64748b)',
-        }}
-      >
-        <Loader2 className="animate-spin" size={28} />
-        <span>Verifying access permissions…</span>
-      </div>
-    )
+    return <SoilSyncLoading label="Verifying access permissions…" />
   }
 
   // 3. Signed out state
