@@ -5,6 +5,10 @@
       "destination": "https://soilsync-wpa.onrender.com/api/:path*"
     },
     {
+      "source": "/assets/:path*",
+      "destination": "/assets/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
