@@ -1504,7 +1504,7 @@ export default function FarmerAccount({ onBackToDemo }: { onBackToDemo: () => vo
                               recommendation.ruleVersion.startsWith('V')
                               ? recommendation.ruleVersion
                               : `v${recommendation.ruleVersion}`
-                            : 'prototype'}
+                            : 'Version unavailable'}
                         </span>
                       </div>
                       <p>{recommendation.rationale}</p>

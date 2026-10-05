@@ -1021,7 +1021,7 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
                   </div>
                 ) : (
                   <p className="loading-state">
-                    Loading authorized overview metrics from database…
+                    Loading platform overview…
                   </p>
                 )}
 
@@ -1835,7 +1835,7 @@ export default function AdminAccount({ onBackToDemo }: { onBackToDemo: () => voi
                     </div>
                   </>
                 ) : (
-                  <p className="loading-state">Querying operational subsystems…</p>
+                  <p className="loading-state">Loading platform health details…</p>
                 )}
               </section>
             )}
