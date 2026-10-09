@@ -212,6 +212,12 @@ export default function ExtensionOfficerAccount({
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
       setSessionRoleVerified(false)
+      if (!nextSession) {
+        setEmail('')
+        setPassword('')
+        setManualToken('')
+        setActiveToken('')
+      }
     })
     void supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
@@ -685,6 +691,8 @@ export default function ExtensionOfficerAccount({
       return
     }
     setSession(null)
+    setEmail('')
+    setPassword('')
     setManualToken('')
     setActiveToken('')
     setJurisdictions([])

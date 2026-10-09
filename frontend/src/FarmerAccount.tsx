@@ -149,6 +149,9 @@ export default function FarmerAccount({
       startTransition(() => {
         setSession(nextSession)
         if (!nextSession) {
+          setEmail('')
+          setPassword('')
+          setConfirmPassword('')
           setProfile(null)
           setSelectedFarmId('')
           setReadings([])
@@ -334,6 +337,9 @@ export default function FarmerAccount({
         localSignOutError = getErrorMessage(signOutError)
       }
       setSession(null)
+      setEmail('')
+      setPassword('')
+      setConfirmPassword('')
       setProfile(null)
       setSelectedFarmId('')
       setReadings([])

@@ -65,13 +65,24 @@
   color-scheme: dark;
   --page: #081a11;
   --page-deep: #0d2418;
-  --surface: rgba(12, 24, 18, 0.72);
-  --surface-strong: #10261d;
-  --surface-soft: #143225;
+  --surface: #10261d;
+  --surface-strong: #163426;
+  --surface-soft: #193a2a;
+  --surface-bg: #10261d;
+  --surface-hover: #1b3d2c;
+  --input-bg: #0d2118;
+  --table-header-bg: #193a2a;
+  --border-color: rgba(210, 235, 218, 0.2);
+  --line-light: rgba(210, 235, 218, 0.16);
+  --text-main: #ecf6ee;
+  --text-muted: #b8cbbd;
+  --ink-muted: #b8cbbd;
+  --primary: #72d49a;
+  --warning: #f0c76b;
   --ink: #ecf6ee;
   --muted: #a3b8a8;
-  --line: rgba(236, 246, 238, 0.08);
-  --line-strong: rgba(236, 246, 238, 0.12);
+  --line: rgba(210, 235, 218, 0.15);
+  --line-strong: rgba(210, 235, 218, 0.24);
   --green: #72d49a;
   --green-strong: #8ae0aa;
   --green-deep: #a6efbd;
@@ -83,6 +94,75 @@
   --red: #ef8b7e;
   --shadow-soft: 0 18px 42px rgba(0, 0, 0, 0.25);
   --shadow-panel: 0 12px 30px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-theme='dark'] input,
+:root[data-theme='dark'] select,
+:root[data-theme='dark'] textarea {
+  color: var(--ink) !important;
+  color-scheme: dark;
+  background-color: var(--input-bg) !important;
+  border-color: var(--line-strong) !important;
+}
+
+:root[data-theme='dark'] input::placeholder,
+:root[data-theme='dark'] textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+:root[data-theme='dark'] .admin-auth-card,
+:root[data-theme='dark'] .farm-panel,
+:root[data-theme='dark'] .score-panel,
+:root[data-theme='dark'] .history-panel,
+:root[data-theme='dark'] .auth-card,
+:root[data-theme='dark'] .account-auth-panel,
+:root[data-theme='dark'] .account-auth-aside,
+:root[data-theme='dark'] .auth-entry-card,
+:root[data-theme='dark'] .modal-card,
+:root[data-theme='dark'] .modal-content,
+:root[data-theme='dark'] .application-card,
+:root[data-theme='dark'] .pending-card {
+  color: var(--ink);
+  background: var(--surface-strong) !important;
+  border-color: var(--line-strong) !important;
+  box-shadow: var(--shadow-panel);
+}
+
+:root[data-theme='dark'] .auth-card *,
+:root[data-theme='dark'] .admin-auth-card *,
+:root[data-theme='dark'] .account-auth-panel *,
+:root[data-theme='dark'] .account-auth-aside *,
+:root[data-theme='dark'] .auth-entry-card *,
+:root[data-theme='dark'] .modal-card *,
+:root[data-theme='dark'] .modal-content * {
+  border-color: var(--line-strong);
+}
+
+:root[data-theme='dark'] [style*='background: rgb(255, 255, 255)'],
+:root[data-theme='dark'] [style*='background: #ffffff'],
+:root[data-theme='dark'] [style*='background: white'],
+:root[data-theme='dark'] [style*='background-color: rgb(255, 255, 255)'],
+:root[data-theme='dark'] [style*='background-color: #ffffff'] {
+  color: var(--ink) !important;
+  background: var(--surface-strong) !important;
+  border-color: var(--line-strong) !important;
+}
+
+:root[data-theme='dark'] [style*='color: rgb(15, 23, 42)'],
+:root[data-theme='dark'] [style*='color: #0f172a'],
+:root[data-theme='dark'] [style*='color: rgb(27, 42, 29)'],
+:root[data-theme='dark'] [style*='color: #1b2a1d'],
+:root[data-theme='dark'] [style*='color: rgb(51, 65, 85)'],
+:root[data-theme='dark'] [style*='color: #334155'] {
+  color: var(--ink) !important;
+}
+
+:root[data-theme='dark'] [style*='color: rgb(71, 85, 105)'],
+:root[data-theme='dark'] [style*='color: #475569'],
+:root[data-theme='dark'] [style*='color: rgb(100, 116, 139)'],
+:root[data-theme='dark'] [style*='color: #64748b'] {
+  color: var(--muted) !important;
 }
 
 html {

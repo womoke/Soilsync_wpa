@@ -217,6 +217,9 @@ describe('authenticated farmer workspace', () => {
     ).toBeInTheDocument()
     expect(supabase.auth.signOut).toHaveBeenCalledOnce()
     expect(authStateListener).toBeDefined()
+    expect(screen.getByLabelText('Email address')).toHaveValue('')
+    expect(screen.getByLabelText('Password')).toHaveValue('')
+    expect(screen.getByLabelText('Confirm password')).toHaveValue('')
   })
 
   it('does not register a farmer when password confirmation does not match', async () => {

@@ -124,6 +124,12 @@ export default function AgrodealerAccount({
       if (!isMounted) return
       setSession(nextSession)
       setSessionRoleVerified(false)
+      if (!nextSession) {
+        setEmail('')
+        setPassword('')
+        setManualToken('')
+        setActiveToken('')
+      }
     })
 
     return () => {
@@ -232,6 +238,8 @@ export default function AgrodealerAccount({
       return
     }
     setSession(null)
+    setEmail('')
+    setPassword('')
     setActiveToken('')
     setManualToken('')
     setProfile(null)

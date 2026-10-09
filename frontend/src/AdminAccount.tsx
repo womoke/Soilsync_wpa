@@ -253,6 +253,10 @@ export default function AdminAccount({
         setActiveToken('')
         setSession(null)
         setSessionRoleVerified(false)
+        setEmail('')
+        setPassword('')
+        setManualToken('')
+        setReauthPassword('')
         setMessage('Admin session timed out after 15 minutes of inactivity.')
         if (supabase) {
           void supabase.auth.signOut({ scope: 'local' })
@@ -334,6 +338,14 @@ export default function AdminAccount({
     } = supabase.auth.onAuthStateChange((_event: string, currentSession: Session | null) => {
       setSession(currentSession)
       setSessionRoleVerified(false)
+      if (!currentSession) {
+        setEmail('')
+        setPassword('')
+        setManualToken('')
+        setActiveToken('')
+        setReauthPassword('')
+        setPendingSensitiveAction(null)
+      }
     })
 
     return () => {
@@ -479,7 +491,12 @@ export default function AdminAccount({
       return
     }
     setSession(null)
+    setEmail('')
+    setPassword('')
+    setManualToken('')
     setActiveToken('')
+    setReauthPassword('')
+    setPendingSensitiveAction(null)
     setMessage('Signed out of admin console.')
     onBackToDemo()
   }
