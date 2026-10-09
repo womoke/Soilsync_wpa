@@ -230,6 +230,9 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
           )
         }
       } else if (mode === 'register') {
+        if (password !== confirmPassword) {
+          throw new Error('The passwords do not match.')
+        }
         if (!consentAccepted) {
           throw new Error('You must acknowledge the Data Protection Notice to create an account.')
         }
@@ -345,9 +348,11 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
               />
             </label>
           )}
-          {mode === 'update-password' && (
+          {(mode === 'register' || mode === 'update-password') && (
             <label className="account-field">
-              <span>Confirm new password</span>
+              <span>
+                {mode === 'update-password' ? 'Confirm new password' : 'Confirm password'}
+              </span>
               <input
                 type="password"
                 autoComplete="new-password"

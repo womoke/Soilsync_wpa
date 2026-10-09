@@ -176,6 +176,9 @@ describe('authenticated farmer workspace', () => {
     fireEvent.change(screen.getByLabelText('Password'), {
       target: { value: 'secure-password' },
     })
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'secure-password' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
 
     expect(await screen.findByRole('heading', { name: 'Welcome, Amina Njeri' })).toBeInTheDocument()
@@ -214,6 +217,40 @@ describe('authenticated farmer workspace', () => {
     ).toBeInTheDocument()
     expect(supabase.auth.signOut).toHaveBeenCalledOnce()
     expect(authStateListener).toBeDefined()
+  })
+
+  it('does not register a farmer when password confirmation does not match', async () => {
+    const supabase = {
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        signUp: vi.fn(),
+        signInWithPassword: vi.fn(),
+        signOut: vi.fn(),
+      },
+    }
+    getClient.mockReturnValue(supabase)
+    render(<FarmerAccount onBackToDemo={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create account' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Full name' }), {
+      target: { value: 'Amina Njeri' },
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), {
+      target: { value: 'amina@example.test' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'secure-password' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'different-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The passwords do not match.')
+    expect(supabase.auth.signUp).not.toHaveBeenCalled()
   })
 
   it('shows the SoilSync loading mark while checking the farmer session', () => {

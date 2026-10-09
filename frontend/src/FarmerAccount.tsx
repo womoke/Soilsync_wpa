@@ -111,6 +111,7 @@ export default function FarmerAccount({
   const [authMode, setAuthMode] = useState<'sign-in' | 'register'>('sign-in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [profile, setProfile] = useState<FarmerProfile | null>(null)
   const [selectedFarmId, setSelectedFarmId] = useState('')
@@ -274,6 +275,9 @@ export default function FarmerAccount({
     setIsWorking(true)
     try {
       if (authMode === 'register') {
+        if (password !== confirmPassword) {
+          throw new Error('The passwords do not match.')
+        }
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: email.trim(),
           password,
@@ -558,6 +562,19 @@ export default function FarmerAccount({
                     required
                   />
                 </label>
+                {authMode === 'register' && (
+                  <label className="account-field">
+                    <span>Confirm password</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={8}
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      required
+                    />
+                  </label>
+                )}
                 <button className="primary-button" type="submit" disabled={isWorking}>
                   {isWorking
                     ? authMode === 'sign-in'
@@ -573,9 +590,13 @@ export default function FarmerAccount({
                 <button
                   className="text-button"
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     setAuthMode((current) => (current === 'sign-in' ? 'register' : 'sign-in'))
-                  }
+                    setPassword('')
+                    setConfirmPassword('')
+                    setError('')
+                    setMessage('')
+                  }}
                 >
                   {authMode === 'sign-in' ? 'Create account' : 'Sign in'}
                 </button>

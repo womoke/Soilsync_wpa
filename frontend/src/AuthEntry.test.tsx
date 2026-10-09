@@ -130,12 +130,44 @@ describe('AuthEntry', () => {
       target: { value: 'amina@example.test' },
     })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secure-password' } })
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'secure-password' },
+    })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       'Account created. Sign in to continue.',
     )
+  })
+
+  it('rejects mismatched registration password confirmation', async () => {
+    const signUp = vi.fn()
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        signUp,
+      },
+    })
+
+    render(<AuthEntry onAuthenticated={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+    fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Amina Njeri' } })
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'amina@example.test' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secure-password' } })
+    fireEvent.change(screen.getByLabelText('Confirm password'), {
+      target: { value: 'different-password' },
+    })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The passwords do not match.')
+    expect(signUp).not.toHaveBeenCalled()
   })
 
   it('rejects registration if privacy consent checkbox is not accepted', async () => {

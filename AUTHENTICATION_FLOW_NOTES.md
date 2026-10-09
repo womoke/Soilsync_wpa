@@ -61,7 +61,10 @@ when the email link is opened. The client had `persistSession: false`, which
 prevented the verifier from surviving a page reload or the return from email.
 The client now persists auth state so the PKCE callback can exchange the code
 for a recovery session. Password setup/reset also requires a matching
-confirmation password.
+confirmation password. Both account-registration surfaces—the shared auth
+screen and the farmer workspace—also require matching password confirmation.
+Password-only fields in admin/staff sign-in and admin re-authentication are
+login verification fields, not new-password forms.
 
 Focused password reset and PKCE tests pass (15 tests), and the frontend
 production build succeeds. After deploying this change, request a fresh
