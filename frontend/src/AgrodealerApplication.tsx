@@ -71,7 +71,10 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
   }
 
   return (
-    <div className="application-shell" style={{ maxWidth: '680px', margin: '40px auto', padding: '0 20px' }}>
+    <div
+      className="application-shell"
+      style={{ maxWidth: '680px', margin: '40px auto', padding: '0 20px' }}
+    >
       <div
         className="application-card"
         style={{
@@ -82,19 +85,49 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
           boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#d97706', marginBottom: '8px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            color: 'var(--green-strong)',
+            marginBottom: '8px',
+          }}
+        >
           <Store size={26} />
-          <span style={{ fontSize: '13px', fontWeight: '700', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          <span
+            style={{
+              fontSize: '13px',
+              fontWeight: '700',
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase',
+            }}
+          >
             Agrodealer Application
           </span>
         </div>
 
-        <h1 style={{ fontSize: '24px', fontWeight: '700', margin: '0 0 8px 0', color: 'var(--ink, #0f172a)' }}>
+        <h1
+          style={{
+            fontSize: '24px',
+            fontWeight: '700',
+            margin: '0 0 8px 0',
+            color: 'var(--ink, #0f172a)',
+          }}
+        >
           Register Your Agrodealer Business
         </h1>
-        <p style={{ color: 'var(--ink-muted, #64748b)', margin: '0 0 24px 0', fontSize: '14px', lineHeight: '1.5' }}>
-          Connect directly with farmers in your county. Applications undergo administrative verification
-          against county business registers and plant health authorities before catalog listing is activated.
+        <p
+          style={{
+            color: 'var(--ink-muted, #64748b)',
+            margin: '0 0 24px 0',
+            fontSize: '14px',
+            lineHeight: '1.5',
+          }}
+        >
+          Connect directly with farmers in your county. Applications undergo administrative
+          verification against county business registers and plant health authorities before catalog
+          listing is activated.
         </p>
 
         {error && (
@@ -118,9 +151,21 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}
+        >
           <div>
-            <label htmlFor="dealer-business-name" style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--ink)' }}>
+            <label
+              htmlFor="dealer-business-name"
+              style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '600',
+                marginBottom: '6px',
+                color: 'var(--ink)',
+              }}
+            >
               Business name *
             </label>
             <input
@@ -141,9 +186,24 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: '16px',
+            }}
+          >
             <div>
-              <label htmlFor="dealer-licence-number" style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--ink)' }}>
+              <label
+                htmlFor="dealer-licence-number"
+                style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  marginBottom: '6px',
+                  color: 'var(--ink)',
+                }}
+              >
                 Licence / Registration number *
               </label>
               <input
@@ -165,7 +225,16 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
             </div>
 
             <div>
-              <label htmlFor="dealer-contact-name" style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--ink)' }}>
+              <label
+                htmlFor="dealer-contact-name"
+                style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  marginBottom: '6px',
+                  color: 'var(--ink)',
+                }}
+              >
                 Contact person name *
               </label>
               <input
@@ -187,9 +256,24 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: '14px',
+            }}
+          >
             <div>
-              <label htmlFor="dealer-county" style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--ink)' }}>
+              <label
+                htmlFor="dealer-county"
+                style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  marginBottom: '6px',
+                  color: 'var(--ink)',
+                }}
+              >
                 County *
               </label>
               <select
@@ -215,7 +299,16 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
             </div>
 
             <div>
-              <label htmlFor="dealer-sub-county" style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--ink)' }}>
+              <label
+                htmlFor="dealer-sub-county"
+                style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  marginBottom: '6px',
+                  color: 'var(--ink)',
+                }}
+              >
                 Sub-County
               </label>
               <input
@@ -236,7 +329,16 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
             </div>
 
             <div>
-              <label htmlFor="dealer-ward" style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--ink)' }}>
+              <label
+                htmlFor="dealer-ward"
+                style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  marginBottom: '6px',
+                  color: 'var(--ink)',
+                }}
+              >
                 Ward
               </label>
               <input
@@ -258,7 +360,16 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
           </div>
 
           <div>
-            <label htmlFor="dealer-shop-location" style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--ink)' }}>
+            <label
+              htmlFor="dealer-shop-location"
+              style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '600',
+                marginBottom: '6px',
+                color: 'var(--ink)',
+              }}
+            >
               Shop location / Physical address
             </label>
             <input
@@ -279,7 +390,16 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
           </div>
 
           <div>
-            <label htmlFor="dealer-phone-number" style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--ink)' }}>
+            <label
+              htmlFor="dealer-phone-number"
+              style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '600',
+                marginBottom: '6px',
+                color: 'var(--ink)',
+              }}
+            >
               Business phone number
             </label>
             <input
@@ -297,7 +417,14 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
                 background: 'var(--input-bg, #ffffff)',
               }}
             />
-            <small style={{ color: 'var(--ink-muted, #64748b)', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+            <small
+              style={{
+                color: 'var(--ink-muted, #64748b)',
+                fontSize: '12px',
+                marginTop: '4px',
+                display: 'block',
+              }}
+            >
               Used by farmers to confirm stock availability and arrange orders.
             </small>
           </div>
@@ -311,7 +438,16 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
               marginTop: '4px',
             }}
           >
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '13px', cursor: 'pointer', lineHeight: '1.4' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                fontSize: '13px',
+                cursor: 'pointer',
+                lineHeight: '1.4',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={agreedToTerms}
@@ -319,13 +455,16 @@ export const AgrodealerApplication: FC<AgrodealerApplicationProps> = ({ onSucces
                 style={{ marginTop: '2px' }}
               />
               <span>
-                I certify that our business holds a valid trade licence, and that all agricultural inputs
-                listed on SoilSync AI will comply with national quality and certification standards.
+                I certify that our business holds a valid trade licence, and that all agricultural
+                inputs listed on SoilSync AI will comply with national quality and certification
+                standards.
               </span>
             </label>
           </div>
 
-          <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+          <div
+            style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}
+          >
             {onCancel && (
               <button
                 type="button"

@@ -1,18 +1,23 @@
 @import 'tailwindcss';
 
 :root {
-  --page: #f4f6ef;
-  --page-deep: #eaf1e5;
+  --page: #f3f8f4;
+  --page-deep: #e7f2e9;
   --surface: rgba(255, 255, 255, 0.72);
   --surface-strong: #ffffff;
-  --surface-soft: #f1f7ee;
+  --surface-soft: #edf6ef;
   --ink: #1b2a1d;
   --muted: #586f5f;
   --line: rgba(27, 42, 29, 0.08);
   --line-strong: rgba(27, 42, 29, 0.14);
-  --gold: #9a7d45;
-  --gold-soft: #f7f0df;
-  --green: #2d7a4d;
+  --green: #21834f;
+  --green-strong: #17663d;
+  --green-deep: #14532d;
+  --green-soft: #e8f5eb;
+  --green-border: #b9dfc3;
+  --green-wash: rgba(33, 131, 79, 0.12);
+  --gold: var(--green);
+  --gold-soft: var(--green-soft);
   --red: #b85d5d;
   --shadow-soft: 0 18px 48px rgba(20, 32, 24, 0.08);
   --shadow-panel: 0 12px 30px rgba(22, 36, 27, 0.12);
@@ -34,18 +39,23 @@
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --page: #f4f6ef;
-  --page-deep: #eaf1e5;
+  --page: #f3f8f4;
+  --page-deep: #e7f2e9;
   --surface: rgba(255, 255, 255, 0.74);
   --surface-strong: #ffffff;
-  --surface-soft: #f1f7ee;
+  --surface-soft: #edf6ef;
   --ink: #1b2a1d;
   --muted: #586f5f;
   --line: rgba(27, 42, 29, 0.08);
   --line-strong: rgba(27, 42, 29, 0.14);
-  --gold: #9a7d45;
-  --gold-soft: #f7f0df;
-  --green: #2d7a4d;
+  --green: #21834f;
+  --green-strong: #17663d;
+  --green-deep: #14532d;
+  --green-soft: #e8f5eb;
+  --green-border: #b9dfc3;
+  --green-wash: rgba(33, 131, 79, 0.12);
+  --gold: var(--green);
+  --gold-soft: var(--green-soft);
   --red: #b85d5d;
   --shadow-soft: 0 18px 48px rgba(20, 32, 24, 0.08);
   --shadow-panel: 0 12px 30px rgba(22, 36, 27, 0.12);
@@ -62,9 +72,14 @@
   --muted: #a3b8a8;
   --line: rgba(236, 246, 238, 0.08);
   --line-strong: rgba(236, 246, 238, 0.12);
-  --gold: #d9b66f;
-  --gold-soft: rgba(217, 182, 111, 0.12);
-  --green: #7ecf9a;
+  --green: #72d49a;
+  --green-strong: #8ae0aa;
+  --green-deep: #a6efbd;
+  --green-soft: rgba(114, 212, 154, 0.14);
+  --green-border: rgba(114, 212, 154, 0.38);
+  --green-wash: rgba(114, 212, 154, 0.14);
+  --gold: var(--green);
+  --gold-soft: var(--green-soft);
   --red: #ef8b7e;
   --shadow-soft: 0 18px 42px rgba(0, 0, 0, 0.25);
   --shadow-panel: 0 12px 30px rgba(0, 0, 0, 0.18);
@@ -81,7 +96,7 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at top, rgba(154, 125, 69, 0.15), transparent 28%),
+    radial-gradient(circle at top, var(--green-wash), transparent 28%),
     linear-gradient(180deg, var(--page) 0%, var(--page-deep) 100%);
   color: var(--ink);
 }
@@ -131,7 +146,7 @@ code {
   font-size: 15px;
   line-height: 135%;
   padding: 4px 8px;
-  background: rgba(154, 125, 69, 0.08);
+  background: color-mix(in srgb, var(--green) 8%, transparent);
 }
 
 * {

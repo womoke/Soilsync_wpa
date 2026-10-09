@@ -429,7 +429,7 @@ export default function ExtensionOfficerAccount({
       if (token) {
         void getOfficerVisitPool(token)
           .then(setVisitPool)
-          .catch(() => { })
+          .catch(() => {})
       }
     } finally {
       setIsWorking(false)
@@ -547,7 +547,7 @@ export default function ExtensionOfficerAccount({
       if (token) {
         void getUnverifiedAssessments(token)
           .then(setAssessments)
-          .catch(() => { })
+          .catch(() => {})
       }
       setMessage(res.message || 'Field data and GPS coordinates recorded successfully.')
     } catch (err) {
@@ -628,20 +628,20 @@ export default function ExtensionOfficerAccount({
         prev.map((a) =>
           a.assessmentId === selectedAssessment.assessmentId
             ? {
-              ...a,
-              officerEdits: res.officerEdits as typeof a.officerEdits,
-              agronomistEdits: res.agronomistEdits as typeof a.agronomistEdits,
-            }
+                ...a,
+                officerEdits: res.officerEdits as typeof a.officerEdits,
+                agronomistEdits: res.agronomistEdits as typeof a.agronomistEdits,
+              }
             : a,
         ),
       )
       setSelectedAssessment((prev) =>
         prev
           ? {
-            ...prev,
-            officerEdits: res.officerEdits as typeof prev.officerEdits,
-            agronomistEdits: res.agronomistEdits as typeof prev.agronomistEdits,
-          }
+              ...prev,
+              officerEdits: res.officerEdits as typeof prev.officerEdits,
+              agronomistEdits: res.agronomistEdits as typeof prev.agronomistEdits,
+            }
           : null,
       )
       setAssessmentNotes('')
@@ -1017,7 +1017,7 @@ export default function ExtensionOfficerAccount({
                     padding: '0.35rem 0.5rem',
                     borderRadius: '0.25rem',
                     backgroundColor: 'rgba(0,0,0,0.03)',
-                    borderLeft: '3px solid #f59e0b',
+                    borderLeft: '3px solid var(--green)',
                     color: 'var(--text-secondary)',
                   }}
                 >
@@ -1236,8 +1236,8 @@ export default function ExtensionOfficerAccount({
                       className="draft-status-pill"
                       style={{
                         fontSize: '0.78rem',
-                        backgroundColor: daysRemaining <= 2 ? '#fee2e2' : '#fef3c7',
-                        color: daysRemaining <= 2 ? '#b91c1c' : '#b45309',
+                        backgroundColor: daysRemaining <= 2 ? '#fee2e2' : 'var(--green-soft)',
+                        color: daysRemaining <= 2 ? '#b91c1c' : 'var(--green-deep)',
                         fontWeight: 600,
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1863,8 +1863,9 @@ export default function ExtensionOfficerAccount({
                       Crop: {item.crop}
                     </span>
                     <span
-                      className={`sync-status-indicator ${item.reviewStage === 'claimed' ? 'is-synced' : 'is-draft'
-                        }`}
+                      className={`sync-status-indicator ${
+                        item.reviewStage === 'claimed' ? 'is-synced' : 'is-draft'
+                      }`}
                       style={{ fontSize: '0.75rem' }}
                     >
                       {item.reviewStage === 'claimed' ? 'Claimed by Agronomist' : 'Awaiting Review'}
@@ -2326,26 +2327,39 @@ export default function ExtensionOfficerAccount({
                   exact coordinates.
                 </p>
 
-                <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    gap: '0.5rem',
+                    alignItems: 'center',
+                    marginBottom: '0.5rem',
+                  }}
+                >
                   <input
                     type="checkbox"
                     checked={hasLocationConsent}
                     onChange={(e) => setHasLocationConsent(e.target.checked)}
                   />
                   <span style={{ fontSize: '0.85rem' }}>
-                    I confirm the farmer has explicitly consented to recording exact GPS
-                    coordinates for this visit.
+                    I confirm the farmer has explicitly consented to recording exact GPS coordinates
+                    for this visit.
                   </span>
                 </label>
 
                 <label className="auth-field" style={{ margin: 0, marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '0.8rem' }}>Consent notes (brief, required to save exact GPS)</span>
+                  <span style={{ fontSize: '0.8rem' }}>
+                    Consent notes (brief, required to save exact GPS)
+                  </span>
                   <input
                     type="text"
                     value={locationConsentNotes}
                     placeholder="e.g. Farmer verbally agreed to ward-level GPS for routing"
                     onChange={(e) => setLocationConsentNotes(e.target.value)}
-                    style={{ padding: '0.4rem', borderRadius: '0.25rem', border: '1px solid var(--border-color)' }}
+                    style={{
+                      padding: '0.4rem',
+                      borderRadius: '0.25rem',
+                      border: '1px solid var(--border-color)',
+                    }}
                   />
                 </label>
 
@@ -2669,7 +2683,8 @@ export default function ExtensionOfficerAccount({
                 </h3>
                 <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                   Farmer: {selectedAssessment.farmerName || 'Not recorded'} • County:{' '}
-                  {selectedAssessment.county || 'Not recorded'} • Stage: {selectedAssessment.reviewStage}
+                  {selectedAssessment.county || 'Not recorded'} • Stage:{' '}
+                  {selectedAssessment.reviewStage}
                 </p>
               </div>
               <button
@@ -2960,8 +2975,8 @@ export default function ExtensionOfficerAccount({
                 Collaborative Review Thread
               </h4>
               {(!selectedAssessment.officerEdits || selectedAssessment.officerEdits.length === 0) &&
-                (!selectedAssessment.agronomistEdits ||
-                  selectedAssessment.agronomistEdits.length === 0) ? (
+              (!selectedAssessment.agronomistEdits ||
+                selectedAssessment.agronomistEdits.length === 0) ? (
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
                   No collaborative notes recorded yet. Add notes below to document field
                   adjustments.

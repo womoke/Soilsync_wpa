@@ -52,7 +52,10 @@ export const AgrodealerPendingView: FC<AgrodealerPendingViewProps> = ({ onBackTo
   }, [session?.access_token])
 
   return (
-    <div className="pending-shell" style={{ maxWidth: '640px', margin: '40px auto', padding: '0 20px' }}>
+    <div
+      className="pending-shell"
+      style={{ maxWidth: '640px', margin: '40px auto', padding: '0 20px' }}
+    >
       <div
         className="pending-card"
         style={{
@@ -69,8 +72,8 @@ export const AgrodealerPendingView: FC<AgrodealerPendingViewProps> = ({ onBackTo
             width: '64px',
             height: '64px',
             borderRadius: '50%',
-            background: '#fef3c7',
-            color: '#d97706',
+            background: 'var(--green-soft)',
+            color: 'var(--green-strong)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -85,9 +88,9 @@ export const AgrodealerPendingView: FC<AgrodealerPendingViewProps> = ({ onBackTo
             display: 'inline-block',
             padding: '4px 12px',
             borderRadius: '20px',
-            background: '#fffbeb',
-            border: '1px solid #fde68a',
-            color: '#b45309',
+            background: 'var(--green-soft)',
+            border: '1px solid var(--green-border)',
+            color: 'var(--green-deep)',
             fontSize: '12px',
             fontWeight: '700',
             letterSpacing: '0.04em',
@@ -98,14 +101,28 @@ export const AgrodealerPendingView: FC<AgrodealerPendingViewProps> = ({ onBackTo
           Application Under Review
         </div>
 
-        <h1 style={{ fontSize: '24px', fontWeight: '700', margin: '0 0 10px 0', color: 'var(--ink, #0f172a)' }}>
+        <h1
+          style={{
+            fontSize: '24px',
+            fontWeight: '700',
+            margin: '0 0 10px 0',
+            color: 'var(--ink, #0f172a)',
+          }}
+        >
           Dealer Application Pending Approval
         </h1>
 
-        <p style={{ color: 'var(--ink-muted, #64748b)', fontSize: '14px', lineHeight: '1.6', margin: '0 0 24px 0' }}>
-          Your application to register as an authorized agrodealer has been submitted.
-          A system administrator must review and verify your business licence before product listing
-          and farmer orders can be activated.
+        <p
+          style={{
+            color: 'var(--ink-muted, #64748b)',
+            fontSize: '14px',
+            lineHeight: '1.6',
+            margin: '0 0 24px 0',
+          }}
+        >
+          Your application to register as an authorized agrodealer has been submitted. A system
+          administrator must review and verify your business licence before product listing and
+          farmer orders can be activated.
         </p>
 
         {application && (
@@ -147,7 +164,13 @@ export const AgrodealerPendingView: FC<AgrodealerPendingViewProps> = ({ onBackTo
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--ink-muted)' }}>Verification State:</span>
-              <span style={{ color: '#d97706', fontWeight: '600', textTransform: 'capitalize' }}>
+              <span
+                style={{
+                  color: 'var(--green-strong)',
+                  fontWeight: '600',
+                  textTransform: 'capitalize',
+                }}
+              >
                 {application.verificationState}
               </span>
             </div>
@@ -156,8 +179,8 @@ export const AgrodealerPendingView: FC<AgrodealerPendingViewProps> = ({ onBackTo
 
         <div
           style={{
-            background: '#fffbeb',
-            border: '1px solid #fef3c7',
+            background: 'var(--green-soft)',
+            border: '1px solid var(--green-border)',
             borderRadius: '12px',
             padding: '16px',
             textAlign: 'left',
@@ -167,10 +190,13 @@ export const AgrodealerPendingView: FC<AgrodealerPendingViewProps> = ({ onBackTo
             gap: '12px',
           }}
         >
-          <Lock size={18} style={{ color: '#d97706', marginTop: '2px', flexShrink: 0 }} />
-          <div style={{ fontSize: '13px', color: '#92400e', lineHeight: '1.5' }}>
-            <strong>Catalog and Orders Locked:</strong> You cannot add inventory items, publish stock,
-            or accept customer orders until verification is confirmed by an administrator.
+          <Lock
+            size={18}
+            style={{ color: 'var(--green-strong)', marginTop: '2px', flexShrink: 0 }}
+          />
+          <div style={{ fontSize: '13px', color: 'var(--green-deep)', lineHeight: '1.5' }}>
+            <strong>Catalog and Orders Locked:</strong> You cannot add inventory items, publish
+            stock, or accept customer orders until verification is confirmed by an administrator.
           </div>
         </div>
 

@@ -606,9 +606,9 @@ export default function AgrodealerAccount({
             <strong style={{ display: 'block', color: '#0f172a', marginBottom: '2px' }}>
               Non-Endorsement Policy (Section 5.81)
             </strong>
-            SoilSync AI agronomical recommendations are strictly objective and analyte-based. Listing
-            products in this catalog does not imply official endorsement or guarantee availability.
-            Physical stock and prices must always be confirmed with the dealer.
+            SoilSync AI agronomical recommendations are strictly objective and analyte-based.
+            Listing products in this catalog does not imply official endorsement or guarantee
+            availability. Physical stock and prices must always be confirmed with the dealer.
           </div>
         </div>
 
@@ -754,8 +754,10 @@ export default function AgrodealerAccount({
                     borderRadius: '12px',
                     fontSize: '0.75rem',
                     fontWeight: 600,
-                    background: profile?.locationVerified ? '#dcfce7' : '#fef3c7',
-                    color: profile?.locationVerified ? '#15803d' : '#b45309',
+                    background: profile?.locationVerified
+                      ? 'var(--green-soft)'
+                      : 'var(--green-wash)',
+                    color: 'var(--green-deep)',
                   }}
                 >
                   {profile?.locationVerified ? 'Location Verified' : 'Location Unverified'}
@@ -784,11 +786,19 @@ export default function AgrodealerAccount({
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#047857' }}>Fresh Stock</div>
               </div>
-              <div style={{ padding: '0.5rem 1rem', background: '#fffbeb', borderRadius: '8px' }}>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#b45309' }}>
+              <div
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: 'var(--green-soft)',
+                  borderRadius: '8px',
+                }}
+              >
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--green-deep)' }}>
                   {staleCount}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#b45309' }}>Stale (&gt;7d)</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--green-deep)' }}>
+                  Stale (&gt;7d)
+                </div>
               </div>
               <div style={{ padding: '0.5rem 1rem', background: '#fef2f2', borderRadius: '8px' }}>
                 <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#b91c1c' }}>
@@ -990,9 +1000,9 @@ export default function AgrodealerAccount({
                                 background: isOutOfStock
                                   ? '#fee2e2'
                                   : isStale
-                                    ? '#fef3c7'
+                                    ? 'var(--green-soft)'
                                     : '#dcfce7',
-                                color: isOutOfStock ? '#991b1b' : isStale ? '#92400e' : '#166534',
+                                color: isOutOfStock ? '#991b1b' : 'var(--green-deep)',
                               }}
                             >
                               {isOutOfStock
@@ -1398,7 +1408,7 @@ export default function AgrodealerAccount({
                                     : order.status === 'cancelled'
                                       ? '#fee2e2'
                                       : order.status === 'disputed'
-                                        ? '#fef3c7'
+                                        ? 'var(--green-soft)'
                                         : '#f1f5f9',
                               color:
                                 order.status === 'confirmed'
@@ -1408,7 +1418,7 @@ export default function AgrodealerAccount({
                                     : order.status === 'cancelled'
                                       ? '#991b1b'
                                       : order.status === 'disputed'
-                                        ? '#92400e'
+                                        ? 'var(--green-deep)'
                                         : '#475569',
                             }}
                           >
@@ -1425,7 +1435,13 @@ export default function AgrodealerAccount({
                           </p>
                         )}
                         {order.disputeReason && (
-                          <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#92400e' }}>
+                          <p
+                            style={{
+                              margin: '2px 0 0 0',
+                              fontSize: '0.8rem',
+                              color: 'var(--green-deep)',
+                            }}
+                          >
                             Dispute: {order.disputeReason} ({order.disputeStatus})
                           </p>
                         )}
@@ -1478,7 +1494,7 @@ export default function AgrodealerAccount({
                             style={{
                               fontSize: '0.8rem',
                               padding: '0.35rem 0.75rem',
-                              color: '#92400e',
+                              color: 'var(--green-deep)',
                             }}
                           >
                             Mediation / Dispute

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminAccount from './AdminAccount'
+import type { AdminUser } from './api/admin'
 
 const { getClient, linkAccount } = vi.hoisted(() => ({
   getClient: vi.fn().mockReturnValue(null),
@@ -38,7 +39,7 @@ const mockPermissions = [
   { id: 'p4', permission: 'manage_settings', expiresAt: null, isActive: true },
 ]
 
-const mockUsers = [
+const mockUsers: AdminUser[] = [
   {
     userId: 'u-1',
     authUserId: 'auth-u-1',
