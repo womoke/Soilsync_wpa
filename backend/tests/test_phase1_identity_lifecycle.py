@@ -727,3 +727,55 @@ def test_admin_delete_user_protects_self_and_last_active_admin(monkeypatch):
             "last-admin",
             "last-admin@example.test",
         )
+
+
+def test_admin_delete_user_rejects_target_with_admins_auth_identity(monkeypatch):
+    from app import database
+
+    class MockCursor:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, query: str, _params: tuple | None = None) -> None:
+            self.query = " ".join(query.lower().split())
+
+        def fetchone(self):
+            if "from users" in self.query and "for update" in self.query:
+                return {
+                    "id": "target-profile-id",
+                    "supabase_auth_user_id": "shared-auth-id",
+                    "email": "admin@example.test",
+                    "role": "admin",
+                    "is_active": True,
+                }
+            if "select supabase_auth_user_id from users" in self.query:
+                return {"supabase_auth_user_id": "shared-auth-id"}
+            raise AssertionError(f"Unexpected query: {self.query}")
+
+    class MockConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return MockCursor()
+
+        def commit(self):
+            raise AssertionError("A self-deletion attempt must not commit.")
+
+    monkeypatch.setattr(database, "check_admin_permission", lambda *_args: True)
+    monkeypatch.setattr(database, "_connect", MockConnection)
+
+    with pytest.raises(database.AccountDeletionConflict, match="own admin account"):
+        database.admin_delete_user(
+            "admin-profile-id",
+            "target-profile-id",
+            "admin@example.test",
+        )

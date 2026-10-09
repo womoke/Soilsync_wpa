@@ -5127,7 +5127,9 @@ def admin_delete_user(
         return None
 
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext('soilsync-admin-user-deletion'))")
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext('soilsync-admin-user-deletion'))"
+        )
         cursor.execute(
             """
             SELECT id, supabase_auth_user_id, email, role, is_active
@@ -5140,6 +5142,17 @@ def admin_delete_user(
         target = cursor.fetchone()
         if target is None:
             return None
+        if target.get("supabase_auth_user_id"):
+            cursor.execute(
+                "SELECT supabase_auth_user_id FROM users WHERE id = %s",
+                (admin_user_id,),
+            )
+            actor = cursor.fetchone()
+            if actor and actor.get("supabase_auth_user_id") == target["supabase_auth_user_id"]:
+                raise AccountDeletionConflict(
+                    "You cannot permanently delete your own admin account."
+                )
+
         email = str(target["email"] or "")
         if not email or email.casefold() != confirmation_email.strip().casefold():
             raise AccountDeletionConflict("The confirmation email does not match this account.")

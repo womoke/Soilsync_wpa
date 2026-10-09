@@ -751,13 +751,27 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
 
   it('prompts for administrator re-authentication before executing sensitive role changes when session is active', async () => {
     const signInWithPasswordMock = vi.fn().mockResolvedValue({ error: null })
+    mockUsers.push({
+      userId: 'admin-profile-current',
+      authUserId: 'admin-auth-current',
+      displayName: 'Current Admin',
+      email: 'superadmin@soilsync.ke',
+      phone: null,
+      role: 'admin',
+      isActive: true,
+      approvalStatus: 'approved',
+      approvedAt: '2026-10-01T08:00:00Z',
+      revocationReason: null,
+      suspendedAt: null,
+      createdAt: '2026-10-01T08:00:00Z',
+    })
     const mockSupabase = {
       auth: {
         getSession: vi.fn().mockResolvedValue({
           data: {
             session: {
               access_token: 'valid-admin-session-token',
-              user: { email: 'superadmin@soilsync.ke' },
+              user: { id: 'admin-auth-current', email: 'superadmin@soilsync.ke' },
             },
           },
         }),
@@ -779,6 +793,10 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
     // Navigate to Users tab
     fireEvent.click(await screen.findByRole('button', { name: /Accounts & Roles/i }))
     expect(await screen.findByText('Account Lifecycle & Role Governance')).toBeInTheDocument()
+
+    const ownAccountButton = screen.getByRole('button', { name: /Your account/i })
+    expect(ownAccountButton).toBeDisabled()
+    expect(ownAccountButton).toHaveAttribute('title', 'You cannot delete your own admin account')
 
     // Trigger sensitive action: change role of Amina Njeri to Extension Officer
     const roleSelect = screen.getByLabelText('Role for amina.njeri@example.com')
@@ -809,5 +827,6 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('reauth-modal')).not.toBeInTheDocument()
     })
+    mockUsers.pop()
   })
 })

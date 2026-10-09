@@ -1379,9 +1379,30 @@ export default function AdminAccount({
                                     setDeleteEmailConfirmation('')
                                     setSelectedUserForRevoke(u)
                                   }}
-                                  title="Permanently delete account and linked data"
+                                  disabled={Boolean(
+                                    session?.user &&
+                                    ((u.authUserId && u.authUserId === session.user.id) ||
+                                      (session.user.email &&
+                                        u.email?.toLowerCase() ===
+                                          session.user.email.toLowerCase())),
+                                  )}
+                                  title={
+                                    session?.user &&
+                                    ((u.authUserId && u.authUserId === session.user.id) ||
+                                      (session.user.email &&
+                                        u.email?.toLowerCase() ===
+                                          session.user.email.toLowerCase()))
+                                      ? 'You cannot delete your own admin account'
+                                      : 'Permanently delete account and linked data'
+                                  }
                                 >
-                                  <Trash2 size={14} /> Delete
+                                  <Trash2 size={14} />{' '}
+                                  {session?.user &&
+                                  ((u.authUserId && u.authUserId === session.user.id) ||
+                                    (session.user.email &&
+                                      u.email?.toLowerCase() === session.user.email.toLowerCase()))
+                                    ? 'Your account'
+                                    : 'Delete'}
                                 </button>
                                 {(u.approvalStatus === 'pending' ||
                                   u.approvalStatus === 'unclaimed') &&
