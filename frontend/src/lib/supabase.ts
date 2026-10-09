@@ -16,7 +16,7 @@ export function getSupabaseClient(): SupabaseClient | null {
   supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
       autoRefreshToken: true,
-      persistSession: false,
+      persistSession: true,
       detectSessionInUrl: true,
       flowType: 'pkce',
     },
@@ -27,4 +27,3 @@ export function getSupabaseClient(): SupabaseClient | null {
 export function _resetSupabaseClientForTest(): void {
   supabaseClient = undefined
 }
-

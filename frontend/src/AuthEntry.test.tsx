@@ -236,6 +236,9 @@ describe('AuthEntry', () => {
     fireEvent.change(screen.getByLabelText('New password'), {
       target: { value: 'replacement-password' },
     })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'replacement-password' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('/farmer'))
@@ -257,16 +260,85 @@ describe('AuthEntry', () => {
 
     render(<AuthEntry onAuthenticated={vi.fn()} />)
     expect(
-      screen.getByText(/Choose your own password to activate your administrator-provisioned account/),
+      screen.getByText(
+        /Choose your own password to activate your administrator-provisioned account/,
+      ),
     ).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
       target: { value: 'replacement-password' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This password setup link has no active authentication session.',
+      'This invitation link could not establish an active authentication session.',
     )
+    expect(updateUser).not.toHaveBeenCalled()
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('explains how to recover when a password reset link has no session', async () => {
+    window.history.replaceState(null, '', '/reset-password')
+    const updateUser = vi.fn()
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        updateUser,
+      },
+    })
+
+    render(<AuthEntry onAuthenticated={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This password reset link could not establish an authentication session.',
+    )
+    expect(updateUser).not.toHaveBeenCalled()
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('rejects mismatched password confirmation before changing the password', async () => {
+    window.history.replaceState(null, '', '/reset-password')
+    const updateUser = vi.fn()
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({
+          data: {
+            session: {
+              access_token: 'access-token',
+              user: { user_metadata: {} },
+            },
+          },
+          error: null,
+        }),
+        updateUser,
+      },
+    })
+
+    render(<AuthEntry onAuthenticated={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'different-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The passwords do not match.')
     expect(updateUser).not.toHaveBeenCalled()
     window.history.replaceState(null, '', '/')
   })
@@ -356,6 +428,9 @@ describe('AuthEntry', () => {
     fireEvent.change(screen.getByLabelText('New password'), {
       target: { value: 'replacement-password' },
     })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'replacement-password' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
 
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('/farmer'))
@@ -406,11 +481,16 @@ describe('AuthEntry', () => {
 
     render(<AuthEntry onAuthenticated={onAuthenticated} />)
     expect(
-      await screen.findByText(/Choose your own password to activate your administrator-provisioned account/i),
+      await screen.findByText(
+        /Choose your own password to activate your administrator-provisioned account/i,
+      ),
     ).toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
 
     fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
       target: { value: 'replacement-password' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Update password' }))

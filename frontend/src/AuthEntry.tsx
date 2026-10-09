@@ -37,10 +37,7 @@ function hasInvitationCallback(): boolean {
 
 function hasClaimActivationCallback(): boolean {
   const url = new URL(window.location.href)
-  if (
-    url.pathname.toLowerCase() !== '/reset-password' ||
-    url.searchParams.get('claim') !== '1'
-  ) {
+  if (url.pathname.toLowerCase() !== '/reset-password' || url.searchParams.get('claim') !== '1') {
     return false
   }
   const callbackParams = new URLSearchParams(url.hash.replace(/^#/, ''))
@@ -73,8 +70,8 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
   const authCallbackTokens = useRef(readAuthCallbackTokens())
   const [mode, setMode] = useState<AuthMode>(() =>
     window.location.pathname.toLowerCase() === '/reset-password' ||
-      hasInvitationCallback() ||
-      hasClaimActivationCallback()
+    hasInvitationCallback() ||
+    hasClaimActivationCallback()
       ? 'update-password'
       : 'sign-in',
   )
@@ -84,6 +81,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [isWorking, setIsWorking] = useState(false)
   const [isResolvingAccount, setIsResolvingAccount] = useState(false)
@@ -94,6 +92,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
     setDisplayName('')
     setEmail('')
     setPassword('')
+    setConfirmPassword('')
     setConsentAccepted(false)
   }, [])
 
@@ -102,11 +101,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
   }, [onAuthenticated])
 
   const finishSignIn = useCallback(
-    async (
-      session: Session,
-      name?: string,
-      canNavigate: () => boolean = () => true,
-    ) => {
+    async (session: Session, name?: string, canNavigate: () => boolean = () => true) => {
       setIsResolvingAccount(true)
       try {
         clearFormInputs()
@@ -165,7 +160,8 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
           !session ||
           window.location.pathname.toLowerCase() === '/reset-password' ||
           isInvitationActivation
-        ) return
+        )
+          return
         await finishSignIn(session, getDisplayName(session), () => active)
       } catch (sessionError: unknown) {
         if (active) setError(getErrorMessage(sessionError))
@@ -195,14 +191,20 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
         if (resetError) throw resetError
         setMessage('If an account exists for that email, a password reset link has been sent.')
       } else if (mode === 'update-password') {
+        if (password !== confirmPassword) {
+          throw new Error('The passwords do not match.')
+        }
         const { data: sessionData, error: currentSessionError } = await supabase.auth.getSession()
         if (currentSessionError) throw currentSessionError
         if (!sessionData.session) {
           throw new Error(
-            'This password setup link has no active authentication session. Request a new invitation and open its link in the same browser.',
+            isInvitationActivation
+              ? 'This invitation link could not establish an active authentication session. Request a new invitation and open its link in the same browser.'
+              : 'This password reset link could not establish an authentication session. Request a new password reset email and open its link in the same browser.',
           )
         }
-        const userRoles = (sessionData?.session?.user?.user_metadata?.roles as string[] | undefined) || []
+        const userRoles =
+          (sessionData?.session?.user?.user_metadata?.roles as string[] | undefined) || []
         const isAdmin = userRoles.includes('admin')
         const validation = validatePasswordPolicy(password, isAdmin ? 'admin' : undefined)
         if (!validation.isValid) {
@@ -222,7 +224,10 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
           setMode('sign-in')
           setMessage('Password updated. Sign in with your new password.')
         } else {
-          await finishSignIn(refreshedSessionData.session, getDisplayName(refreshedSessionData.session))
+          await finishSignIn(
+            refreshedSessionData.session,
+            getDisplayName(refreshedSessionData.session),
+          )
         }
       } else if (mode === 'register') {
         if (!consentAccepted) {
@@ -336,6 +341,19 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
                 minLength={8}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+            </label>
+          )}
+          {mode === 'update-password' && (
+            <label className="account-field">
+              <span>Confirm new password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
                 required
               />
             </label>
