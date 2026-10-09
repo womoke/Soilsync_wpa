@@ -35,6 +35,10 @@ class AccountProvisioningConflict(RuntimeError):
     pass
 
 
+class AccountDeletionConflict(RuntimeError):
+    pass
+
+
 def _database_errors_as_unavailable(function):
     @wraps(function)
     def wrapped(*args, **kwargs):
@@ -5110,6 +5114,122 @@ def admin_revoke_user(
             "suspendedAt": row["suspended_at"].isoformat() if hasattr(row["suspended_at"], "isoformat") else str(row["suspended_at"]),
             "revocationReason": row["revocation_reason"],
         }
+
+
+@_database_errors_as_unavailable
+def admin_delete_user(
+    admin_user_id: str, target_user_id: str, confirmation_email: str
+) -> dict[str, Any] | None:
+    """Permanently remove a user and owned data while anonymizing audit history."""
+    if admin_user_id == target_user_id:
+        raise AccountDeletionConflict("You cannot permanently delete your own admin account.")
+    if not check_admin_permission(admin_user_id, "manage_accounts"):
+        return None
+
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext('soilsync-admin-user-deletion'))")
+        cursor.execute(
+            """
+            SELECT id, supabase_auth_user_id, email, role, is_active
+            FROM users
+            WHERE id = %s
+            FOR UPDATE
+            """,
+            (target_user_id,),
+        )
+        target = cursor.fetchone()
+        if target is None:
+            return None
+        email = str(target["email"] or "")
+        if not email or email.casefold() != confirmation_email.strip().casefold():
+            raise AccountDeletionConflict("The confirmation email does not match this account.")
+
+        if target["role"] == "admin" and target["is_active"] is True:
+            cursor.execute(
+                """
+                SELECT COUNT(DISTINCT users.id) AS active_admin_count
+                FROM users
+                JOIN user_roles
+                  ON user_roles.user_id = users.supabase_auth_user_id
+                WHERE users.role = 'admin'
+                  AND users.is_active = TRUE
+                  AND user_roles.role = 'admin'
+                  AND user_roles.status = 'active'
+                """
+            )
+            admin_count = cursor.fetchone()["active_admin_count"]
+            if admin_count <= 1:
+                raise AccountDeletionConflict(
+                    "The last active admin account cannot be permanently deleted."
+                )
+
+        auth_user_id = target.get("supabase_auth_user_id")
+        cursor.execute(
+            """
+            UPDATE users
+            SET is_active = FALSE, approval_status = 'suspended'
+            WHERE id = %s
+            """,
+            (target_user_id,),
+        )
+        if auth_user_id:
+            cursor.execute(
+                """
+                UPDATE user_roles
+                SET status = 'suspended', updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (str(auth_user_id),),
+            )
+        connection.commit()
+
+    if auth_user_id:
+        delete_supabase_user(str(auth_user_id))
+
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT public.anonymize_deleted_user_audit_history(%s, %s, %s)",
+            (target_user_id, str(auth_user_id) if auth_user_id else None, email),
+        )
+        cursor.execute(
+            """
+            INSERT INTO admin_audit_log (
+                actor_user_id, actor_role, action, target_type, target_id, detail
+            )
+            VALUES (%s, 'admin', 'permanently_delete_user', 'user', NULL,
+                    '{"account_data_deleted": true, "audit_history_anonymized": true}'::jsonb)
+            """,
+            (admin_user_id,),
+        )
+        cursor.execute(
+            """
+            INSERT INTO audit_log (
+                actor_id, action, target_type, target_id, details, timestamp
+            )
+            VALUES (
+                %s, 'permanently_delete_user', 'user', NULL,
+                '{"account_data_deleted": true, "audit_history_anonymized": true}'::jsonb,
+                NOW()
+            )
+            """,
+            (admin_user_id,),
+        )
+        if auth_user_id:
+            cursor.execute("DELETE FROM profiles WHERE id = %s", (str(auth_user_id),))
+            cursor.execute(
+                "DELETE FROM account_invitations WHERE auth_user_id = %s",
+                (str(auth_user_id),),
+            )
+            cursor.execute(
+                "DELETE FROM user_roles WHERE user_id IN (%s, %s)",
+                (str(auth_user_id), target_user_id),
+            )
+        cursor.execute("DELETE FROM users WHERE id = %s RETURNING id", (target_user_id,))
+        if cursor.fetchone() is None:
+            raise DatabaseUnavailable("The user account could not be permanently deleted.")
+        connection.commit()
+
+    return {"userId": target_user_id, "email": email, "status": "deleted"}
 
 
 @_database_errors_as_unavailable

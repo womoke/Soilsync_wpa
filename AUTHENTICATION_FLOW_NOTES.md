@@ -70,3 +70,29 @@ Focused password reset and PKCE tests pass (15 tests), and the frontend
 production build succeeds. After deploying this change, request a fresh
 password reset email and open its link in the same browser profile/device in
 which the request was made; older links may not have a saved verifier.
+
+The user subsequently reported that a reset worked in a new browser session.
+After submitting the new password, the form clears and the app routes to the
+authenticated workspace after a short delay. This matches the current flow:
+the frontend updates the password, then verifies/links the Supabase session
+with the backend and routes using the returned application role. This live
+result is user-reported, not independently observed in the browser.
+
+## Admin account deletion
+
+The admin user-management action now permanently deletes the selected account
+instead of suspending it. The admin must re-authenticate and type the account's
+email to confirm. The backend prevents self-deletion and deletion of the last
+active admin, disables app access first, deletes the Supabase Auth identity,
+anonymizes audit-history references/details, and then deletes the application
+user and its cascading linked data.
+
+Apply `backend/database/migrations/031_permanent_user_deletion.sql` before
+deploying the backend. It permits the deleted user's audit references to be
+anonymized (including both the app-user and Supabase Auth IDs) while keeping
+the audit log append-only for other updates/deletes, and changes the
+unclaimed-account officer reference so it cannot block a permanent deletion.
+If Supabase Auth deletion fails after app access is disabled, the endpoint
+reports a retryable error; a later retry completes the cleanup. The backend
+and frontend tests pass, but the migration still needs to be applied and
+verified against the deployed PostgreSQL database.

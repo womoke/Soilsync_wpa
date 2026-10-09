@@ -246,6 +246,19 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
               }),
           })
         }
+        if (url.includes('/api/v1/admin/users/') && method === 'DELETE') {
+          const userId = url.split('/').pop()
+          const deletedUser = mockUsers.find((user) => user.userId === userId)
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                userId,
+                email: deletedUser?.email,
+                status: 'deleted',
+              }),
+          })
+        }
         if (url.includes('/api/v1/admin/officers/invite') && method === 'POST') {
           return Promise.resolve({
             ok: true,
@@ -475,7 +488,7 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
     expect(screen.queryByText('Registered Users')).not.toBeInTheDocument()
   })
 
-  it('navigates to accounts tab and performs audited approval and revocation (Item 86)', async () => {
+  it('approves a user and permanently deletes a confirmed account', async () => {
     render(<AdminAccount onBackToDemo={vi.fn()} />)
 
     const tokenInput = screen.getByPlaceholderText(/Paste Bearer token here/i)
@@ -502,18 +515,28 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
       ).toBeInTheDocument()
     })
 
-    // 2. Suspend user Amina
-    const suspendBtns = screen.getAllByRole('button', { name: /Suspend/i })
-    fireEvent.click(suspendBtns[0])
-
-    expect(screen.getByText(/Suspend Account: amina.njeri@example.com/i)).toBeInTheDocument()
-    const reasonInput = screen.getByLabelText(/Reason for Suspension/i)
-    fireEvent.change(reasonInput, { target: { value: 'Violation of data terms' } })
-    fireEvent.click(screen.getByRole('button', { name: /Suspend Account/i }))
+    // 2. Permanently delete farmer Amina after email confirmation.
+    fireEvent.click(screen.getAllByRole('button', { name: /^Delete$/i })[0])
+    expect(screen.getByText('Permanently delete account')).toBeInTheDocument()
+    const deleteButton = screen.getByRole('button', { name: /Permanently Delete Account/i })
+    expect(deleteButton).toBeDisabled()
+    fireEvent.change(screen.getByLabelText(/Type the account email to confirm deletion/i), {
+      target: { value: 'amina.njeri@example.com' },
+    })
+    fireEvent.click(deleteButton)
 
     await waitFor(() => {
-      expect(screen.getByText(/has been suspended with logged justification/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/permanently deleted.*Audit history was anonymized and retained/i),
+      ).toBeInTheDocument()
     })
+    expect(screen.queryByText('Amina Njeri')).not.toBeInTheDocument()
+    const deleteRequest = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.find(([, init]) => init?.method === 'DELETE')
+    expect(deleteRequest?.[1]?.body).toBe(
+      JSON.stringify({ confirmationEmail: 'amina.njeri@example.com' }),
+    )
   })
 
   it('navigates to operational health tab and verifies privacy safeguards (Item 87)', async () => {
@@ -631,9 +654,7 @@ describe('AdminAccount Component - Section 6 Admin Workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Set Token' }))
     fireEvent.click(await screen.findByRole('button', { name: /Accounts & Roles/i }))
 
-    expect(
-      await screen.findByText(/missing the manage_accounts permission/i),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/missing the manage_accounts permission/i)).toBeInTheDocument()
   })
 
   it('opens invite officer modal and submits extension officer invitation', async () => {

@@ -337,7 +337,7 @@ def delete_supabase_user(auth_user_id: str) -> None:
         if code in {"user_not_found", "not_found"} or status == 404:
             return
         raise SupabaseIdentityUnavailableError(
-            "The invitation could not be rolled back in Supabase Auth."
+            "The authentication identity could not be deleted from Supabase Auth."
         ) from exc
 
 

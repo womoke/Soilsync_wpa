@@ -424,7 +424,7 @@ ALTER TABLE admin_permissions ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS admin_audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     actor_role TEXT NOT NULL,
     action TEXT NOT NULL,
     target_type TEXT,
@@ -660,5 +660,4 @@ CREATE INDEX IF NOT EXISTS idx_assessments_reading_id ON agronomic_assessments(s
 CREATE INDEX IF NOT EXISTS idx_assessments_status_county ON agronomic_assessments(status, county);
 CREATE INDEX IF NOT EXISTS idx_assessments_claiming_agronomist ON agronomic_assessments(claiming_agronomist_id);
 CREATE INDEX IF NOT EXISTS idx_assessments_officer_user ON agronomic_assessments(officer_user_id);
-
 

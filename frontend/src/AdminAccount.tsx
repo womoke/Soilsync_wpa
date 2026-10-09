@@ -22,7 +22,6 @@ import {
   Trash2,
   UserCheck,
   UserPlus,
-  UserX,
   Users,
   XCircle,
 } from 'lucide-react'
@@ -32,6 +31,7 @@ import { SoilSyncLoading } from './SoilSyncLoading'
 import {
   approveAdminUser,
   cancelInvitation,
+  deleteAdminUser,
   getAdminAuditLog,
   getAdminOperationalHealth,
   getAdminOverview,
@@ -44,7 +44,6 @@ import {
   inviteAgronomist,
   inviteOfficer,
   resendInvitation,
-  revokeAdminUser,
   revokeSupportAccess,
   toggleAdminUserActive,
   triggerUnclaimedCleanup,
@@ -170,8 +169,7 @@ export default function AdminAccount({
 
   // Modals / Action States
   const [selectedUserForRevoke, setSelectedUserForRevoke] = useState<AdminUser | null>(null)
-  const [revokeReason, setRevokeReason] = useState('')
-  const [revokeRoleCheck, setRevokeRoleCheck] = useState(false)
+  const [deleteEmailConfirmation, setDeleteEmailConfirmation] = useState('')
 
   const [selectedUserForApprove, setSelectedUserForApprove] = useState<AdminUser | null>(null)
   const [approvalNotes, setApprovalNotes] = useState('')
@@ -202,7 +200,9 @@ export default function AdminAccount({
   const [showInviteOfficerModal, setShowInviteOfficerModal] = useState(false)
   const [showInviteAgrodealerModal, setShowInviteAgrodealerModal] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteDesignation, setInviteDesignation] = useState<'county' | 'subcounty' | 'ward'>('ward')
+  const [inviteDesignation, setInviteDesignation] = useState<'county' | 'subcounty' | 'ward'>(
+    'ward',
+  )
   const [inviteCounty, setInviteCounty] = useState('')
   const [inviteSubCounty, setInviteSubCounty] = useState('')
   const [inviteWard, setInviteWard] = useState('')
@@ -223,7 +223,9 @@ export default function AdminAccount({
   const [inviteAgronomistCounty, setInviteAgronomistCounty] = useState('')
   const [inviteAgronomistSubCounty, setInviteAgronomistSubCounty] = useState('')
   const [inviteAgronomistWard, setInviteAgronomistWard] = useState('')
-  const [inviteAgronomistStatus, setInviteAgronomistStatus] = useState<'pending' | 'approved'>('pending')
+  const [inviteAgronomistStatus, setInviteAgronomistStatus] = useState<'pending' | 'approved'>(
+    'pending',
+  )
 
   // Unclaimed Lifecycle Batch Job State
   const [isProcessingBatch, setIsProcessingBatch] = useState(false)
@@ -269,10 +271,7 @@ export default function AdminAccount({
     }
   }, [effectiveToken, supabase])
 
-  const executeWithReauth = async (
-    title: string,
-    actionFn: () => Promise<void>,
-  ) => {
+  const executeWithReauth = async (title: string, actionFn: () => Promise<void>) => {
     if (session) {
       setPendingSensitiveAction({
         title,
@@ -306,7 +305,8 @@ export default function AdminAccount({
             email: session.user.email,
             password: reauthPassword,
           })
-          if (signInErr) throw new Error('Administrative re-authentication failed: Invalid password.')
+          if (signInErr)
+            throw new Error('Administrative re-authentication failed: Invalid password.')
         }
       }
       const target = pendingSensitiveAction
@@ -518,23 +518,28 @@ export default function AdminAccount({
     }
   }
 
-  // Revoke User
-  const handleRevokeUser = async () => {
-    if (!selectedUserForRevoke || !effectiveToken || !revokeReason.trim()) return
+  // Permanently delete a user
+  const handleDeleteUser = async () => {
+    if (
+      !selectedUserForRevoke ||
+      !effectiveToken ||
+      deleteEmailConfirmation.trim().toLowerCase() !== selectedUserForRevoke.email.toLowerCase()
+    )
+      return
     setIsWorking(true)
     setError('')
     try {
-      const updated = await revokeAdminUser(
+      const deleted = await deleteAdminUser(
         effectiveToken,
         selectedUserForRevoke.userId,
-        revokeReason.trim(),
-        revokeRoleCheck,
+        deleteEmailConfirmation.trim(),
       )
-      setUsers((prev) => prev.map((u) => (u.userId === updated.userId ? updated : u)))
+      setUsers((prev) => prev.filter((u) => u.userId !== deleted.userId))
       setSelectedUserForRevoke(null)
-      setRevokeReason('')
-      setRevokeRoleCheck(false)
-      setMessage(`Account ${updated.email} has been suspended with logged justification.`)
+      setDeleteEmailConfirmation('')
+      setMessage(
+        `Account ${deleted.email} and its linked application data have been permanently deleted. Audit history was anonymized and retained.`,
+      )
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -699,7 +704,10 @@ export default function AdminAccount({
   }
 
   // Resend Pending Invitation
-  const handleResendInvitation = async (authUserId: string | null | undefined, userEmail: string) => {
+  const handleResendInvitation = async (
+    authUserId: string | null | undefined,
+    userEmail: string,
+  ) => {
     if (!effectiveToken || !authUserId) return
     setIsWorking(true)
     setError('')
@@ -714,7 +722,10 @@ export default function AdminAccount({
   }
 
   // Cancel Pending Invitation
-  const handleCancelInvitation = async (authUserId: string | null | undefined, userEmail: string) => {
+  const handleCancelInvitation = async (
+    authUserId: string | null | undefined,
+    userEmail: string,
+  ) => {
     if (!effectiveToken || !authUserId) return
     setIsWorking(true)
     setError('')
@@ -1230,14 +1241,34 @@ export default function AdminAccount({
                       Invite Agronomist
                     </button>
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '0.5rem',
+                      alignItems: 'center',
+                      marginTop: '0.6rem',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: '0.8rem',
+                        color: 'var(--text-secondary)',
+                        fontWeight: 600,
+                      }}
+                    >
                       Unclaimed Account Lifecycle:
                     </span>
                     <button
                       type="button"
                       className="secondary-button"
-                      style={{ fontSize: '0.78rem', padding: '0.25rem 0.6rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                      style={{
+                        fontSize: '0.78rem',
+                        padding: '0.25rem 0.6rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                      }}
                       onClick={handleTriggerReminders}
                       disabled={isProcessingBatch}
                       title="Send automated reminders to officer-registered farmers on days 1-6"
@@ -1247,7 +1278,14 @@ export default function AdminAccount({
                     <button
                       type="button"
                       className="secondary-button"
-                      style={{ fontSize: '0.78rem', padding: '0.25rem 0.6rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#c0392b' }}
+                      style={{
+                        fontSize: '0.78rem',
+                        padding: '0.25rem 0.6rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        color: '#c0392b',
+                      }}
                       onClick={handleTriggerCleanup}
                       disabled={isProcessingBatch}
                       title="Cascade-delete unverified farmer accounts and their initial farms on day 7"
@@ -1334,39 +1372,57 @@ export default function AdminAccount({
                                     <UserCheck size={14} /> Approve
                                   </button>
                                 )}
-                                {u.approvalStatus !== 'suspended' && (
-                                  <button
-                                    type="button"
-                                    className="revoke-btn"
-                                    onClick={() => setSelectedUserForRevoke(u)}
-                                    title="Suspend / Revoke Account"
-                                  >
-                                    <UserX size={14} /> Suspend
-                                  </button>
-                                )}
-                                {(u.approvalStatus === 'pending' || u.approvalStatus === 'unclaimed') &&
+                                <button
+                                  type="button"
+                                  className="revoke-btn"
+                                  onClick={() => {
+                                    setDeleteEmailConfirmation('')
+                                    setSelectedUserForRevoke(u)
+                                  }}
+                                  title="Permanently delete account and linked data"
+                                >
+                                  <Trash2 size={14} /> Delete
+                                </button>
+                                {(u.approvalStatus === 'pending' ||
+                                  u.approvalStatus === 'unclaimed') &&
                                   u.authUserId && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      className="secondary-button"
-                                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-                                      onClick={() => handleResendInvitation(u.authUserId, u.email)}
-                                      title="Resend invitation email"
-                                    >
-                                      <Send size={12} /> Resend
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="revoke-btn"
-                                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-                                      onClick={() => handleCancelInvitation(u.authUserId, u.email)}
-                                      title="Cancel pending invitation"
-                                    >
-                                      <Trash2 size={12} /> Cancel
-                                    </button>
-                                  </>
-                                )}
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="secondary-button"
+                                        style={{
+                                          fontSize: '0.75rem',
+                                          padding: '0.2rem 0.5rem',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.25rem',
+                                        }}
+                                        onClick={() =>
+                                          handleResendInvitation(u.authUserId, u.email)
+                                        }
+                                        title="Resend invitation email"
+                                      >
+                                        <Send size={12} /> Resend
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="revoke-btn"
+                                        style={{
+                                          fontSize: '0.75rem',
+                                          padding: '0.2rem 0.5rem',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.25rem',
+                                        }}
+                                        onClick={() =>
+                                          handleCancelInvitation(u.authUserId, u.email)
+                                        }
+                                        title="Cancel pending invitation"
+                                      >
+                                        <Trash2 size={12} /> Cancel
+                                      </button>
+                                    </>
+                                  )}
                               </div>
                             </td>
                           </tr>
@@ -1434,41 +1490,37 @@ export default function AdminAccount({
                     className="modal-backdrop"
                     role="dialog"
                     aria-modal="true"
-                    aria-labelledby="invite-dealer-title"
+                    aria-labelledby="delete-user-title"
                   >
                     <div className="modal-card">
-                      <h3>Suspend Account: {selectedUserForRevoke.email}</h3>
+                      <h3 id="delete-user-title">Permanently delete account</h3>
                       <p>
-                        Suspension immediately revokes session tokens and stops active operations. A
-                        formal justification reason is required.
+                        This permanently deletes <strong>{selectedUserForRevoke.email}</strong>,
+                        revokes its authentication identity, and removes its linked application
+                        data. This cannot be undone. Audit history is retained with identifying
+                        details anonymized.
                       </p>
                       <div className="form-row">
-                        <label htmlFor="revoke-reason">Reason for Suspension (Mandatory)</label>
-                        <textarea
-                          id="revoke-reason"
-                          value={revokeReason}
-                          onChange={(e) => setRevokeReason(e.target.value)}
-                          placeholder="Document the exact breach of terms, regulatory non-compliance, or officer request…"
-                          rows={3}
+                        <label htmlFor="delete-user-email-confirmation">
+                          Type the account email to confirm deletion
+                        </label>
+                        <input
+                          id="delete-user-email-confirmation"
+                          type="email"
+                          autoComplete="off"
+                          value={deleteEmailConfirmation}
+                          onChange={(event) => setDeleteEmailConfirmation(event.target.value)}
                           required
                         />
-                      </div>
-                      <div className="form-checkbox-row">
-                        <input
-                          type="checkbox"
-                          id="revoke-role-check"
-                          checked={revokeRoleCheck}
-                          onChange={(e) => setRevokeRoleCheck(e.target.checked)}
-                        />
-                        <label htmlFor="revoke-role-check">
-                          Demote privileged role back to standard farmer
-                        </label>
                       </div>
                       <div className="modal-actions">
                         <button
                           type="button"
                           className="secondary-button"
-                          onClick={() => setSelectedUserForRevoke(null)}
+                          onClick={() => {
+                            setSelectedUserForRevoke(null)
+                            setDeleteEmailConfirmation('')
+                          }}
                         >
                           Cancel
                         </button>
@@ -1477,13 +1529,17 @@ export default function AdminAccount({
                           className="danger-button"
                           onClick={() =>
                             executeWithReauth(
-                              `Suspend ${selectedUserForRevoke.email}`,
-                              handleRevokeUser,
+                              `Permanently delete ${selectedUserForRevoke.email}`,
+                              handleDeleteUser,
                             )
                           }
-                          disabled={isWorking || revokeReason.trim().length < 5}
+                          disabled={
+                            isWorking ||
+                            deleteEmailConfirmation.trim().toLowerCase() !==
+                              selectedUserForRevoke.email.toLowerCase()
+                          }
                         >
-                          {isWorking ? 'Suspending…' : 'Suspend Account'}
+                          {isWorking ? 'Deleting…' : 'Permanently Delete Account'}
                         </button>
                       </div>
                     </div>
@@ -1504,8 +1560,9 @@ export default function AdminAccount({
                         <h3 id="invite-officer-title">Invite Extension Officer</h3>
                       </div>
                       <p className="admin-invite-modal-description">
-                        Officers cannot self-register. Their profile and farmer access are scoped to the assigned
-                        jurisdiction; the role activates after they set a password from the email invitation.
+                        Officers cannot self-register. Their profile and farmer access are scoped to
+                        the assigned jurisdiction; the role activates after they set a password from
+                        the email invitation.
                       </p>
                       <form onSubmit={handleInviteOfficer}>
                         <div className="form-row">
@@ -1536,10 +1593,16 @@ export default function AdminAccount({
                           <select
                             id="invite-officer-designation"
                             value={inviteDesignation}
-                            onChange={(e) => setInviteDesignation(e.target.value as 'county' | 'subcounty' | 'ward')}
+                            onChange={(e) =>
+                              setInviteDesignation(
+                                e.target.value as 'county' | 'subcounty' | 'ward',
+                              )
+                            }
                           >
                             <option value="ward">Ward Officer (Ward + Sub-County + County)</option>
-                            <option value="subcounty">Sub-County Officer (Sub-County + County)</option>
+                            <option value="subcounty">
+                              Sub-County Officer (Sub-County + County)
+                            </option>
                             <option value="county">County Officer (Entire County)</option>
                           </select>
                         </div>
@@ -1554,7 +1617,9 @@ export default function AdminAccount({
                           >
                             <option value="">Select County…</option>
                             {KENYA_COUNTIES.map((c) => (
-                              <option key={c} value={c}>{c}</option>
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -1617,8 +1682,8 @@ export default function AdminAccount({
                         <h3 id="invite-dealer-title">Invite Agrodealer</h3>
                       </div>
                       <p className="admin-invite-modal-description">
-                        The dealer receives a secure setup link, chooses a password, then manages their profile,
-                        products, and stock in the dealer workspace.
+                        The dealer receives a secure setup link, chooses a password, then manages
+                        their profile, products, and stock in the dealer workspace.
                       </p>
                       <form onSubmit={handleInviteAgrodealer}>
                         <div className="form-row">
@@ -1660,7 +1725,9 @@ export default function AdminAccount({
                           >
                             <option value="">Select County…</option>
                             {KENYA_COUNTIES.map((county) => (
-                              <option key={county} value={county}>{county}</option>
+                              <option key={county} value={county}>
+                                {county}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -1717,8 +1784,9 @@ export default function AdminAccount({
                         <h3 id="invite-agronomist-title">Invite Agronomist</h3>
                       </div>
                       <p className="admin-invite-modal-description">
-                        Provision a licensed agronomist. The agronomist receives a secure setup link.
-                        Unapproved agronomists remain blocked from review actions until approved.
+                        Provision a licensed agronomist. The agronomist receives a secure setup
+                        link. Unapproved agronomists remain blocked from review actions until
+                        approved.
                       </p>
                       <form onSubmit={handleInviteAgronomist}>
                         <div className="form-row">
@@ -1744,7 +1812,9 @@ export default function AdminAccount({
                           />
                         </div>
                         <div className="form-row">
-                          <label htmlFor="invite-agronomist-licence">Licence / Registration Number *</label>
+                          <label htmlFor="invite-agronomist-licence">
+                            Licence / Registration Number *
+                          </label>
                           <input
                             id="invite-agronomist-licence"
                             type="text"
@@ -1759,9 +1829,13 @@ export default function AdminAccount({
                           <select
                             id="invite-agronomist-status"
                             value={inviteAgronomistStatus}
-                            onChange={(e) => setInviteAgronomistStatus(e.target.value as 'pending' | 'approved')}
+                            onChange={(e) =>
+                              setInviteAgronomistStatus(e.target.value as 'pending' | 'approved')
+                            }
                           >
-                            <option value="pending">Pending Approval (Awaiting Verification)</option>
+                            <option value="pending">
+                              Pending Approval (Awaiting Verification)
+                            </option>
                             <option value="approved">Pre-Approved (Immediate Active Access)</option>
                           </select>
                         </div>
@@ -1774,7 +1848,9 @@ export default function AdminAccount({
                           >
                             <option value="">Select County (Optional)…</option>
                             {KENYA_COUNTIES.map((county) => (
-                              <option key={county} value={county}>{county}</option>
+                              <option key={county} value={county}>
+                                {county}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -2399,13 +2475,29 @@ export default function AdminAccount({
           data-testid="reauth-modal"
         >
           <div className="modal-card" style={{ maxWidth: '480px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                marginBottom: '0.75rem',
+              }}
+            >
               <ShieldAlert size={22} color="#dc2626" />
-              <h3 id="reauth-modal-title" style={{ margin: 0 }}>Security Verification Required</h3>
+              <h3 id="reauth-modal-title" style={{ margin: 0 }}>
+                Security Verification Required
+              </h3>
             </div>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary, #64748b)', marginBottom: '1rem' }}>
-              You are performing a sensitive administrative action: <strong>{pendingSensitiveAction.title}</strong>.
-              Please confirm your identity by re-entering your administrator password.
+            <p
+              style={{
+                fontSize: '0.875rem',
+                color: 'var(--text-secondary, #64748b)',
+                marginBottom: '1rem',
+              }}
+            >
+              You are performing a sensitive administrative action:{' '}
+              <strong>{pendingSensitiveAction.title}</strong>. Please confirm your identity by
+              re-entering your administrator password.
             </p>
 
             {reauthError && (

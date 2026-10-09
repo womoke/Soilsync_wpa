@@ -588,3 +588,142 @@ def test_admin_resend_and_cancel_invitations(mock_supabase_auth, monkeypatch):
     )
     assert cancel_resp.status_code == 200
     assert cancel_resp.json()["action"] == "cancelled"
+
+
+def test_admin_delete_user_anonymizes_audit_and_removes_auth_and_app_data(monkeypatch):
+    from app import database
+
+    events: list[tuple[str, object]] = []
+
+    class MockCursor:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, query: str, params: tuple | None = None) -> None:
+            self.query = " ".join(query.lower().split())
+            events.append((self.query, params))
+
+        def fetchone(self):
+            if "from users" in self.query and "for update" in self.query:
+                return {
+                    "id": "target-user",
+                    "supabase_auth_user_id": "auth-target-user",
+                    "email": "farmer@example.test",
+                    "role": "farmer",
+                    "is_active": True,
+                }
+            if "count(distinct users.id)" in self.query:
+                return {"active_admin_count": 2}
+            if "delete from users" in self.query:
+                return {"id": "target-user"}
+            return None
+
+    class MockConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return MockCursor()
+
+        def commit(self):
+            events.append(("commit", None))
+
+    monkeypatch.setattr(database, "check_admin_permission", lambda *_args: True)
+    monkeypatch.setattr(database, "_connect", MockConnection)
+    monkeypatch.setattr(
+        database,
+        "delete_supabase_user",
+        lambda auth_user_id: events.append(("delete_auth", auth_user_id)),
+    )
+
+    result = database.admin_delete_user(
+        "admin-user",
+        "target-user",
+        "FARMER@example.test",
+    )
+
+    assert result == {
+        "userId": "target-user",
+        "email": "farmer@example.test",
+        "status": "deleted",
+    }
+    assert ("delete_auth", "auth-target-user") in events
+    assert any(
+        query.startswith("select public.anonymize_deleted_user_audit_history")
+        and params == ("target-user", "auth-target-user", "farmer@example.test")
+        for query, params in events
+        if isinstance(query, str)
+    )
+    assert any(
+        query.startswith("delete from users")
+        for query, _params in events
+        if isinstance(query, str)
+    )
+    assert events.index(("delete_auth", "auth-target-user")) < next(
+        index
+        for index, (query, _params) in enumerate(events)
+        if isinstance(query, str) and query.startswith("select public.anonymize_deleted_user_audit_history")
+    )
+
+
+def test_admin_delete_user_protects_self_and_last_active_admin(monkeypatch):
+    from app import database
+
+    with pytest.raises(database.AccountDeletionConflict, match="own admin account"):
+        database.admin_delete_user("same-admin", "same-admin", "admin@example.test")
+
+    class MockCursor:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, query: str, _params: tuple | None = None) -> None:
+            self.query = " ".join(query.lower().split())
+
+        def fetchone(self):
+            if "from users" in self.query and "for update" in self.query:
+                return {
+                    "id": "last-admin",
+                    "supabase_auth_user_id": "auth-last-admin",
+                    "email": "last-admin@example.test",
+                    "role": "admin",
+                    "is_active": True,
+                }
+            if "count(distinct users.id)" in self.query:
+                return {"active_admin_count": 1}
+            return None
+
+    class MockConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return MockCursor()
+
+        def commit(self):
+            raise AssertionError("A protected last-admin deletion must not commit.")
+
+    monkeypatch.setattr(database, "check_admin_permission", lambda *_args: True)
+    monkeypatch.setattr(database, "_connect", MockConnection)
+
+    with pytest.raises(database.AccountDeletionConflict, match="last active admin"):
+        database.admin_delete_user(
+            "another-admin",
+            "last-admin",
+            "last-admin@example.test",
+        )

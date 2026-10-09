@@ -199,6 +199,26 @@ export async function revokeAdminUser(
   return res.json()
 }
 
+export async function deleteAdminUser(
+  token: string,
+  userId: string,
+  confirmationEmail: string,
+): Promise<{ userId: string; email: string; status: 'deleted' }> {
+  const res = await fetch(`/api/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ confirmationEmail }),
+  })
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}))
+    throw new Error(errorBody.detail || `Failed to permanently delete user (HTTP ${res.status})`)
+  }
+  return res.json()
+}
+
 export async function updateAdminUserRole(
   token: string,
   userId: string,
@@ -601,7 +621,9 @@ export async function triggerUnclaimedReminders(
   })
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}))
-    throw new Error(errorBody.detail || `Failed to run unclaimed reminders job (HTTP ${res.status})`)
+    throw new Error(
+      errorBody.detail || `Failed to run unclaimed reminders job (HTTP ${res.status})`,
+    )
   }
   return res.json()
 }

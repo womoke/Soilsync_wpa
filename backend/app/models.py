@@ -485,6 +485,10 @@ class AdminUserRevokeRequest(ContractModel):
     revoke_role: bool = False
 
 
+class AdminUserDeleteRequest(ContractModel):
+    confirmation_email: str = Field(min_length=3, max_length=320)
+
+
 class AdminSupportGrantRequest(ContractModel):
     target_type: Literal["farm", "reading", "farmer_profile", "agrodealer_order"]
     target_id: str = Field(min_length=1, max_length=100)

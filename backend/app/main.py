@@ -8,12 +8,14 @@ from fastapi.responses import JSONResponse
 import app.env  # noqa: F401
 from app import providers
 from app.database import (
+    AccountDeletionConflict,
     AccountProvisioningConflict,
     DatabaseUnavailable,
     access_sensitive_record_under_grant,
     activate_account_invitation,
     admin_approve_agronomist,
     admin_approve_user,
+    admin_delete_user,
     admin_invite_agrodealer,
     admin_invite_agronomist,
     admin_invite_officer,
@@ -110,6 +112,7 @@ from app.models import (
     AdminSupportRevokeRequest,
     AdminUserActiveRequest,
     AdminUserApproveRequest,
+    AdminUserDeleteRequest,
     AdminUserRevokeRequest,
     AgrodealerApplicationRequest,
     AgrodealerApplicationResponse,
@@ -1561,6 +1564,37 @@ def post_admin_user_revoke(
         )
     except DatabaseUnavailable:
         pass
+    return result
+
+
+@app.delete("/api/v1/admin/users/{user_id}")
+def delete_admin_user(
+    request: Request, user_id: str, payload: AdminUserDeleteRequest
+) -> dict[str, object]:
+    admin_user_id = require_admin_session(request)
+    try:
+        result = admin_delete_user(
+            admin_user_id=admin_user_id,
+            target_user_id=user_id,
+            confirmation_email=payload.confirmation_email,
+        )
+    except AccountDeletionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SupabaseIdentityUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The account was disabled, but its authentication identity could not be "
+                f"deleted. Retry account deletion to finish cleanup. {exc}"
+            ),
+        ) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(
+            status_code=403,
+            detail="manage_accounts permission is required or user not found.",
+        )
     return result
 
 

@@ -4219,6 +4219,83 @@ def test_admin_account_approval_and_revocation_flows(monkeypatch) -> None:
     assert any(e["action"] == "revoke_user" for e in audit_entries)
 
 
+def test_admin_user_deletion_requires_matching_email_and_returns_deleted_result(monkeypatch) -> None:
+    from app import main
+
+    test_client = TestClient(main.app)
+    admin_subject = "admin-sub-delete"
+    admin_id = "admin-user-delete"
+    calls = []
+    monkeypatch.setattr(
+        main,
+        "get_verified_supabase_user",
+        lambda token: SimpleNamespace(id=admin_subject),
+    )
+    monkeypatch.setattr(
+        main,
+        "get_linked_supabase_profile",
+        lambda sub: {"id": admin_id, "role": "admin", "is_active": True}
+        if sub == admin_subject
+        else None,
+    )
+    monkeypatch.setattr(
+        main,
+        "get_supabase_user_roles",
+        lambda sub: [{"role": "admin", "status": "active"}],
+    )
+    monkeypatch.setattr(
+        main,
+        "admin_delete_user",
+        lambda admin_user_id, target_user_id, confirmation_email: (
+            calls.append((admin_user_id, target_user_id, confirmation_email))
+            or {
+                "userId": target_user_id,
+                "email": confirmation_email,
+                "status": "deleted",
+            }
+        ),
+    )
+
+    response = test_client.request(
+        "DELETE",
+        "/api/v1/admin/users/target-user",
+        headers={"Authorization": "Bearer verified-admin-token"},
+        json={"confirmationEmail": "farmer@example.test"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "userId": "target-user",
+        "email": "farmer@example.test",
+        "status": "deleted",
+    }
+    assert calls == [(admin_id, "target-user", "farmer@example.test")]
+
+
+def test_admin_user_deletion_reports_auth_cleanup_failure_as_retryable(monkeypatch) -> None:
+    from app import main
+    from app.supabase_client import SupabaseIdentityUnavailableError
+
+    test_client = TestClient(main.app)
+    monkeypatch.setattr(main, "require_admin_session", lambda _request: "admin-user")
+
+    def fail_auth_deletion(**_kwargs):
+        raise SupabaseIdentityUnavailableError(
+            "The authentication identity could not be deleted from Supabase Auth."
+        )
+
+    monkeypatch.setattr(main, "admin_delete_user", fail_auth_deletion)
+    response = test_client.request(
+        "DELETE",
+        "/api/v1/admin/users/target-user",
+        json={"confirmationEmail": "farmer@example.test"},
+    )
+
+    assert response.status_code == 503
+    assert "account was disabled" in response.json()["detail"]
+    assert "Retry account deletion" in response.json()["detail"]
+
+
 def test_admin_operational_health_privacy_safeguards(monkeypatch) -> None:
     from app import main
 
