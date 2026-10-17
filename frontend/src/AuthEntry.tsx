@@ -96,6 +96,18 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
     setConsentAccepted(false)
   }, [])
 
+  const returnToSignIn = useCallback(() => {
+    clearFormInputs()
+    authCallbackTokens.current = null
+    setIsInvitationActivation(false)
+    setMode('sign-in')
+    setError('')
+    setMessage('')
+    if (window.location.pathname.toLowerCase() === '/reset-password') {
+      window.history.replaceState({}, '', '/')
+    }
+  }, [clearFormInputs])
+
   useEffect(() => {
     onAuthenticatedRef.current = onAuthenticated
   }, [onAuthenticated])
@@ -220,8 +232,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
           setIsInvitationActivation(false)
         }
         if (!refreshedSessionData.session) {
-          clearFormInputs()
-          setMode('sign-in')
+          returnToSignIn()
           setMessage('Password updated. Sign in with your new password.')
         } else {
           await finishSignIn(
@@ -463,12 +474,7 @@ export default function AuthEntry({ onAuthenticated }: AuthEntryProps) {
             <button
               className="text-button"
               type="button"
-              onClick={() => {
-                clearFormInputs()
-                setMode('sign-in')
-                setError('')
-                setMessage('')
-              }}
+              onClick={returnToSignIn}
             >
               Back to sign in
             </button>

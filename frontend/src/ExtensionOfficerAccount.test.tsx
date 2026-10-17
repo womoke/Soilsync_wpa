@@ -725,7 +725,7 @@ describe('ExtensionOfficerAccount component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Inspect & Review/i }))
 
     await waitFor(() => {
-      expect(screen.getByText(/KALRO ASSESSMENT PRE-REVIEW/i)).toBeInTheDocument()
+      expect(screen.getByText(/FIELD SOIL ASSESSMENT PRE-REVIEW/i)).toBeInTheDocument()
       expect(screen.getByText(/1. Soil Diagnoses & Indicators/i)).toBeInTheDocument()
       expect(screen.getByText(/2. Agronomic Prescriptions/i)).toBeInTheDocument()
       expect(screen.getByText(/3. Commercial Fertilizer Bridge/i)).toBeInTheDocument()

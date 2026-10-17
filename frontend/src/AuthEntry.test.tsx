@@ -311,6 +311,90 @@ describe('AuthEntry', () => {
     window.history.replaceState(null, '', '/')
   })
 
+  it('clears the invitation callback before returning to sign in', async () => {
+    window.history.replaceState(null, '', '/reset-password?invite=1')
+    const session = {
+      access_token: 'signed-in-token',
+      user: { user_metadata: { display_name: 'Invited Officer' } },
+    }
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        signInWithPassword: vi.fn().mockResolvedValue({ data: { session }, error: null }),
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'linked',
+          appUserId: 'officer-123',
+          identityProvider: 'supabase',
+          role: 'extension_officer',
+        }),
+      }),
+    )
+    const onAuthenticated = vi.fn()
+
+    render(<AuthEntry onAuthenticated={onAuthenticated} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to sign in' }))
+
+    expect(window.location.pathname).toBe('/')
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'officer@example.test' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('/officer'))
+  })
+
+  it('cleans the invitation URL when a password update returns no session', async () => {
+    window.history.replaceState(null, '', '/reset-password?invite=1')
+    const session = {
+      access_token: 'invite-token',
+      user: { user_metadata: { display_name: 'Invited Officer' } },
+    }
+    const getSession = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { session: null }, error: null })
+      .mockResolvedValueOnce({ data: { session }, error: null })
+      .mockResolvedValueOnce({ data: { session: null }, error: null })
+    getClient.mockReturnValue({
+      auth: {
+        onAuthStateChange: vi.fn(() => ({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        })),
+        getSession,
+        updateUser: vi.fn().mockResolvedValue({ data: { user: { id: 'auth-user' } }, error: null }),
+      },
+    })
+
+    render(<AuthEntry onAuthenticated={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'replacement-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update password' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Password updated. Sign in with your new password.',
+    )
+    expect(window.location.pathname).toBe('/')
+    expect(window.location.search).toBe('')
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument()
+    window.history.replaceState(null, '', '/')
+  })
+
   it('explains how to recover when a password reset link has no session', async () => {
     window.history.replaceState(null, '', '/reset-password')
     const updateUser = vi.fn()
