@@ -4,7 +4,6 @@ import argparse
 import csv
 import hashlib
 import json
-import os
 import re
 from collections import Counter
 from decimal import Decimal, InvalidOperation
@@ -274,140 +273,20 @@ def inspect_csv(path: Path) -> dict[str, int]:
 
 
 def import_csv(path: Path, database_url: str, batch_size: int = BATCH_SIZE) -> dict[str, int | str]:
-    try:
-        import psycopg
-    except ImportError as exc:
-        raise RuntimeError("Install the optional database dependency with: pip install -e '.[postgres]'") from exc
-
-    file_sha256 = sha256_file(path)
-    counters: Counter[str] = Counter()
-    seen_record_ids: set[str] = set()
-    provenance_batch: list[tuple[Any, ...]] = []
-    reading_batch: list[tuple[Any, ...]] = []
-    measurement_batch: list[tuple[Any, ...]] = []
-
-    with psycopg.connect(database_url) as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT id FROM source_datasets WHERE dataset_key = %s", (DATASET_KEY,))
-        dataset_row = cursor.fetchone()
-        if dataset_row is None:
-            raise RuntimeError("PROJECT_SOIL_DATASET is missing; apply database migration 002 first.")
-        dataset_id = dataset_row[0]
-
-        cursor.execute(
-            """
-            SELECT status, rows_imported
-            FROM source_import_batches
-            WHERE dataset_id = %s AND file_sha256 = %s
-            """,
-            (dataset_id, file_sha256),
-        )
-        existing_batch = cursor.fetchone()
-        if existing_batch is not None:
-            raise RuntimeError(
-                f"This file fingerprint already has an import batch with status {existing_batch[0]!r}; "
-                "no rows were written."
-            )
-
-        cursor.execute(
-            """
-            INSERT INTO source_import_batches (dataset_id, source_file_name, file_sha256)
-            VALUES (%s, %s, %s)
-            RETURNING id
-            """,
-            (dataset_id, path.name, file_sha256),
-        )
-        import_batch_id = cursor.fetchone()[0]
-
-        def flush_rows() -> None:
-            if provenance_batch:
-                cursor.executemany(PROVENANCE_INSERT, provenance_batch)
-                cursor.executemany(READING_INSERT, reading_batch)
-                if measurement_batch:
-                    cursor.executemany(MEASUREMENT_INSERT, measurement_batch)
-                provenance_batch.clear()
-                reading_batch.clear()
-                measurement_batch.clear()
-
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            if not reader.fieldnames or "id" not in reader.fieldnames:
-                raise ValueError("CSV must contain an 'id' column.")
-
-            for row in reader:
-                counters["rows_read"] += 1
-                source_record_id = clean_text(row.get("id"))
-                if source_record_id is None:
-                    counters["rows_rejected"] += 1
-                    counters["missing_record_id"] += 1
-                    continue
-                if source_record_id in seen_record_ids:
-                    counters["rows_rejected"] += 1
-                    counters["duplicate_record_id"] += 1
-                    continue
-                seen_record_ids.add(source_record_id)
-
-                mapped = map_source_row(row, dataset_id, import_batch_id)
-                if mapped is None:
-                    counters["rows_rejected"] += 1
-                    counters["missing_record_id"] += 1
-                    continue
-                provenance, reading, measurements, invalid_count = mapped
-                provenance_batch.append(provenance)
-                reading_batch.append(reading)
-                measurement_batch.extend(measurements)
-                counters["rows_imported"] += 1
-                counters["measurements_imported"] += len(measurements)
-                counters["invalid_measurements"] += invalid_count
-                if invalid_count:
-                    counters["invalid_measurement_value"] += invalid_count
-
-                if len(reading_batch) >= batch_size:
-                    flush_rows()
-
-        flush_rows()
-        status = "completed_with_rejections" if counters["rows_rejected"] else "completed"
-        errors = {
-            key: value
-            for key, value in counters.items()
-            if key in {"missing_record_id", "duplicate_record_id", "invalid_measurement_value"}
-        }
-        cursor.execute(
-            """
-            UPDATE source_import_batches
-            SET status = %s,
-                rows_read = %s,
-                rows_imported = %s,
-                rows_rejected = %s,
-                errors_by_reason = %s::jsonb,
-                completed_at = NOW()
-            WHERE id = %s
-            """,
-            (
-                status,
-                counters["rows_read"],
-                counters["rows_imported"],
-                counters["rows_rejected"],
-                json.dumps(errors),
-                import_batch_id,
-            ),
-        )
-
-    return {
-        **dict(counters),
-        "status": status,
-        "file_sha256": file_sha256,
-    }
-
+    del path, database_url, batch_size
+    raise RuntimeError(
+        "Importing PROJECT_SOIL_DATASET is disabled because this source is retired."
+    )
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Dry-run or transactionally import the project-provided soil dataset."
+        description="Audit the retired project soil dataset without importing it."
     )
     parser.add_argument("--csv", type=Path, default=DEFAULT_CSV_PATH)
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="Write to PostgreSQL. Without this flag, the command only audits the CSV.",
+        help="Deprecated; writes are disabled because the source is retired.",
     )
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     args = parser.parse_args()
@@ -415,10 +294,9 @@ def main() -> None:
     if args.batch_size < 1:
         parser.error("--batch-size must be greater than zero")
     if args.apply:
-        database_url = os.getenv("DATABASE_URL")
-        if not database_url:
-            parser.error("DATABASE_URL must be configured in the environment when using --apply")
-        result = import_csv(args.csv, database_url, args.batch_size)
+        parser.error(
+            "Importing PROJECT_SOIL_DATASET is disabled because this source is retired."
+        )
     else:
         result = inspect_csv(args.csv)
         result["mode"] = "dry_run"

@@ -1,18 +1,29 @@
 import json
+import math
 import os
+import re
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import wraps
 from typing import Any
 
 import app.env  # noqa: F401
 from app.models import (
+    OFFICER_LOCATION_STORAGE_CONSENT_WORDING_VERSION,
     FarmerSoilReadingCreateRequest,
     SoilMeasurement,
     SoilReading,
     SoilRecommendation,
 )
 from app.recommendations import _safe_float, generate_agronomic_assessment
+from app.services.isda_client import (
+    ISDA_PROPERTY_TO_ANALYTE,
+    THIRD_PARTY_SOIL_CONSENT_SCOPE,
+    NormalizedSoilEstimate,
+)
+from app.soil.normalize import normalize_measurement
 from app.supabase_client import (
     SupabaseIdentityUnavailableError,
     delete_supabase_user,
@@ -68,6 +79,116 @@ def _connect():
         raise DatabaseUnavailable("The configured application database could not be reached.") from exc
 
 
+def _operational_reading_filter(reading_alias: str) -> str:
+    """SQL predicate excluding quarantined and historically retired source readings."""
+    return f"""
+        {reading_alias}.excluded_at IS NULL
+        AND {reading_alias}.reading_source NOT IN (
+            'DEMO_SEED', 'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+        )
+        AND COALESCE({reading_alias}.source_provider, '') NOT IN (
+            'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS', 'DEMO'
+        )
+        AND COALESCE({reading_alias}.source_dataset_id, '') NOT IN (
+            'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM source_datasets AS retired_datasets
+            WHERE retired_datasets.id = {reading_alias}.dataset_id
+              AND (
+                  retired_datasets.dataset_key IN (
+                      'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+                  )
+                  OR retired_datasets.provider_name IN (
+                      'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+                  )
+              )
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM source_import_batches AS retired_batches
+            JOIN source_datasets AS retired_batch_datasets
+              ON retired_batch_datasets.id = retired_batches.dataset_id
+            WHERE retired_batches.id = {reading_alias}.import_batch_id
+              AND (
+                  retired_batch_datasets.dataset_key IN (
+                      'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+                  )
+                  OR retired_batch_datasets.provider_name IN (
+                      'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+                  )
+              )
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM source_provenance AS retired_provenance
+            LEFT JOIN source_datasets AS retired_provenance_datasets
+              ON retired_provenance_datasets.id = retired_provenance.source_dataset_ref_id
+            WHERE (
+                retired_provenance.id = {reading_alias}.provenance_id
+                OR (
+                    retired_provenance.record_id = {reading_alias}.source_record_id
+                    AND (
+                        retired_provenance.source_dataset_ref_id = {reading_alias}.dataset_id
+                        OR (
+                            {reading_alias}.source_dataset_id IS NOT NULL
+                            AND retired_provenance.dataset_id = {reading_alias}.source_dataset_id
+                        )
+                    )
+                )
+            )
+              AND (
+                  retired_provenance.provider_name IN (
+                      'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+                  )
+                  OR retired_provenance.dataset_id IN (
+                      'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+                  )
+                  OR retired_provenance_datasets.dataset_key IN (
+                      'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+                  )
+                  OR retired_provenance_datasets.provider_name IN (
+                      'PROJECT_SOIL_DATASET', 'ISRIC_WOSIS', 'ISRIC_SOILGRIDS'
+                  )
+              )
+        )
+    """
+
+
+def _measured_reading_filter(reading_alias: str) -> str:
+    return f"""
+        {_operational_reading_filter(reading_alias)}
+        AND {reading_alias}.reading_source IN (
+            'FARMER_OBSERVATION', 'OFFICER_FIELD_COLLECTION'
+        )
+        AND {reading_alias}.source_provider IN (
+            'FARMER_OBSERVATION', 'OFFICER_FIELD_COLLECTION'
+        )
+        AND {reading_alias}.measurement_quality IN ('valid', 'mixed')
+        AND EXISTS (
+            SELECT 1
+            FROM soil_measurements AS valid_measurements
+            WHERE valid_measurements.soil_reading_id = {reading_alias}.id
+              AND valid_measurements.quality_status = 'valid'
+        )
+    """
+
+
+def _recommendation_reading_filter(recommendation_alias: str) -> str:
+    return f"""
+        (
+            {recommendation_alias}.soil_reading_id IS NULL
+            OR EXISTS (
+                SELECT 1
+                FROM soil_readings AS recommendation_readings
+                WHERE recommendation_readings.id = {recommendation_alias}.soil_reading_id
+                  AND {_operational_reading_filter("recommendation_readings")}
+            )
+        )
+    """
+
+
 def _upsert_auth_role(cursor, auth_user_id: str, role: str, status: str) -> None:
     normalized_role = "extension-officer" if role == "extension_officer" else role
     cursor.execute(
@@ -91,10 +212,13 @@ def load_demo_soil_reading() -> SoilReading:
                    reading.source_label, reading.top_cm, reading.bottom_cm,
                    reading.location_uncertainty_m, reading.latitude, reading.longitude,
                    reading.source_provider, reading.source_dataset_id, reading.source_record_id,
-                   reading.source_license, reading.source_attribution, reading.source_retrieved_at,
+                   reading.source_dataset_version, reading.source_license,
+                   reading.source_attribution, reading.source_retrieved_at,
                    reading.measurement_quality
             FROM soil_readings AS reading
             WHERE reading.reading_source = 'DEMO_SEED'
+              AND reading.excluded_at IS NULL
+              AND reading.source_provider = 'DEMO'
             ORDER BY reading.sampled_at DESC NULLS LAST, reading.created_at DESC
             LIMIT 1
             """
@@ -106,7 +230,10 @@ def load_demo_soil_reading() -> SoilReading:
         cursor.execute(
             """
             SELECT analyte_code, value, source_unit, canonical_unit,
-                   analytical_method, quality_status
+                   analytical_method, quality_status, source_value_text,
+                   uncertainty_lower, uncertainty_upper, interval_level,
+                   depth_layer, depth_top_cm, depth_bottom_cm,
+                   transformations, normalization_error
             FROM soil_measurements
             WHERE soil_reading_id = %s
             ORDER BY id
@@ -117,25 +244,18 @@ def load_demo_soil_reading() -> SoilReading:
         if not measurement_rows:
             raise DatabaseUnavailable("No seeded soil measurements exist for the database reading.")
         measurements = [
-            SoilMeasurement(
-                analyte=measurement["analyte_code"],
-                value=float(measurement["value"]) if measurement["value"] is not None else None,
-                source_unit=measurement["source_unit"],
-                canonical_unit=measurement["canonical_unit"],
-                analytical_method=measurement["analytical_method"],
-                quality_status=measurement["quality_status"],
-                uncertainty=None,
-            )
+            SoilMeasurement.model_validate(_soil_measurement_from_row(measurement))
             for measurement in measurement_rows
         ]
 
         return SoilReading(
-            contract_version=1,
+            contract_version=2,
             reading_id=str(row["id"]),
             farm_id=str(row["farm_id"]) if row["farm_id"] else None,
             source={
                 "provider": row["source_provider"] or "DEMO",
                 "dataset_id": row["source_dataset_id"],
+                "dataset_version": row["source_dataset_version"],
                 "record_id": row["source_record_id"],
                 "license": row["source_license"],
                 "attribution": row["source_attribution"],
@@ -170,6 +290,8 @@ def load_demo_recommendations() -> list[SoilRecommendation]:
             WHERE soil_reading_id = (
                 SELECT id FROM soil_readings
                 WHERE reading_source = 'DEMO_SEED'
+                  AND excluded_at IS NULL
+                  AND source_provider = 'DEMO'
                 ORDER BY sampled_at DESC NULLS LAST, created_at DESC
                 LIMIT 1
             )
@@ -403,12 +525,13 @@ def load_farmer_farm(user_id: str, farm_id: str) -> dict[str, Any] | None:
 def _soil_reading_from_row(row: dict[str, Any], measurements: list[dict[str, Any]]) -> SoilReading:
     return SoilReading.model_validate(
         {
-            "contract_version": 1,
+            "contract_version": 2,
             "reading_id": str(row["id"]),
             "farm_id": str(row["farm_id"]),
             "source": {
                 "provider": row["source_provider"] or "FARMER_OBSERVATION",
                 "dataset_id": row["source_dataset_id"],
+                "dataset_version": row.get("source_dataset_version"),
                 "record_id": row["source_record_id"],
                 "license": row["source_license"],
                 "attribution": row["source_attribution"],
@@ -433,6 +556,320 @@ def _soil_reading_from_row(row: dict[str, Any], measurements: list[dict[str, Any
     )
 
 
+def _soil_measurement_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    interval_level = row.get("interval_level")
+    lower = row.get("uncertainty_lower")
+    upper = row.get("uncertainty_upper")
+    return {
+        "analyte": row["analyte_code"],
+        "value": float(row["value"]) if row["value"] is not None else None,
+        "source_unit": row["source_unit"] or "unknown",
+        "canonical_unit": row["canonical_unit"],
+        "analytical_method": row["analytical_method"],
+        "quality_status": row["quality_status"],
+        "source_value_text": row.get("source_value_text"),
+        "depth_layer": row.get("depth_layer"),
+        "depth_top_cm": row.get("depth_top_cm"),
+        "depth_bottom_cm": row.get("depth_bottom_cm"),
+        "transformations": row.get("transformations") or [],
+        "normalization_error": row.get("normalization_error"),
+        "uncertainty": (
+            {
+                "interval_level": float(interval_level) if interval_level is not None else None,
+                "lower": float(lower) if lower is not None else None,
+                "upper": float(upper) if upper is not None else None,
+            }
+            if interval_level is not None or lower is not None or upper is not None
+            else None
+        ),
+    }
+
+
+def _aggregate_measurement_quality(qualities: set[str]) -> str:
+    if qualities == {"valid"}:
+        return "valid"
+    if qualities == {"missing"}:
+        return "missing"
+    return "mixed"
+
+
+_ISDA_FAILURE_CODES = frozenset(
+    {
+        "provider_unavailable",
+        "provider_rejected_request",
+        "invalid_provider_response",
+        "unsupported_measurement",
+    }
+)
+
+
+@_database_errors_as_unavailable
+def create_isda_estimate_request(
+    reading_id: str,
+    consent_record_id: str,
+    *,
+    rounded_latitude: float,
+    rounded_longitude: float,
+    layers_requested: Sequence[str],
+) -> str | None:
+    """Create a pending estimate audit row only for an explicitly consented field reading."""
+    if (
+        isinstance(rounded_latitude, bool)
+        or not math.isfinite(rounded_latitude)
+        or not -90 < rounded_latitude < 90
+    ):
+        raise ValueError("Rounded latitude must be finite and strictly between -90 and 90.")
+    if (
+        isinstance(rounded_longitude, bool)
+        or not math.isfinite(rounded_longitude)
+        or not -180 < rounded_longitude < 180
+    ):
+        raise ValueError("Rounded longitude must be finite and strictly between -180 and 180.")
+    requested_layers = tuple(layers_requested)
+    if (
+        not requested_layers
+        or len(set(requested_layers)) != len(requested_layers)
+        or not set(requested_layers).issubset(ISDA_PROPERTY_TO_ANALYTE)
+    ):
+        raise ValueError("Requested layers must be unique supported iSDA soil properties.")
+
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO soil_estimate_requests (
+                reading_id, consent_record_id, rounded_latitude, rounded_longitude,
+                layers_requested
+            )
+            SELECT readings.id, consent.id, %s, %s, %s::jsonb
+            FROM soil_readings AS readings
+            JOIN farms ON farms.id = readings.farm_id
+            JOIN officer_location_consent_records AS consent
+              ON consent.id = %s
+             AND consent.farm_id = readings.farm_id
+             AND consent.visit_id = readings.visit_id
+             AND consent.farmer_id = farms.owner_id
+             AND consent.officer_user_id = readings.officer_user_id
+             AND consent.consent_scopes @> ARRAY[%s]::TEXT[]
+            WHERE readings.id = %s
+              AND readings.reading_source = 'OFFICER_FIELD_COLLECTION'
+              AND readings.excluded_at IS NULL
+              AND readings.latitude IS NOT NULL
+              AND readings.longitude IS NOT NULL
+            RETURNING id
+            """,
+            (
+                rounded_latitude,
+                rounded_longitude,
+                json.dumps(requested_layers),
+                consent_record_id,
+                THIRD_PARTY_SOIL_CONSENT_SCOPE,
+                reading_id,
+            ),
+        )
+        row = cursor.fetchone()
+        return str(row["id"]) if row is not None else None
+
+
+@_database_errors_as_unavailable
+def complete_isda_estimate_request(
+    request_id: str,
+    estimates: Sequence[NormalizedSoilEstimate],
+    *,
+    dataset_id: str,
+    dataset_version: str,
+    license_identifier: str,
+    attribution: str,
+    retrieved_at: datetime,
+    http_status: int = 200,
+) -> dict[str, str]:
+    """Persist estimates as a separate, provenance-linked snapshot, never as field measurements."""
+    required_metadata = {
+        "dataset_id": dataset_id,
+        "dataset_version": dataset_version,
+        "license_identifier": license_identifier,
+        "attribution": attribution,
+    }
+    if any(not isinstance(value, str) or not value.strip() for value in required_metadata.values()):
+        raise ValueError("iSDA dataset version, license, and attribution metadata are required.")
+    if retrieved_at.tzinfo is None or retrieved_at.utcoffset() is None:
+        raise ValueError("retrieved_at must be timezone-aware.")
+    if not 200 <= http_status <= 299:
+        raise ValueError("A successful iSDA snapshot requires a 2xx HTTP status.")
+    if not estimates:
+        raise ValueError("At least one normalized iSDA estimate is required.")
+
+    estimates_by_property: dict[str, NormalizedSoilEstimate] = {}
+    for estimate in estimates:
+        measurement = estimate.measurement
+        property_name = estimate.property_name
+        if (
+            property_name not in ISDA_PROPERTY_TO_ANALYTE
+            or ISDA_PROPERTY_TO_ANALYTE[property_name] != estimate.analyte
+            or property_name in estimates_by_property
+        ):
+            raise ValueError("Estimates must contain unique supported iSDA analytes.")
+        if measurement.quality_status not in {"estimated", "invalid_source_value"}:
+            raise ValueError("iSDA measurements must retain estimated or invalid-source quality.")
+        estimates_by_property[property_name] = estimate
+
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT requests.reading_id, requests.status, requests.rounded_latitude,
+                   requests.rounded_longitude, requests.layers_requested,
+                   requests.consent_record_id, readings.farm_id, readings.officer_user_id,
+                   readings.visit_id, readings.sampled_at, readings.sample_year,
+                   readings.top_cm, readings.bottom_cm, readings.location_uncertainty_m,
+                   readings.excluded_at, consent.consent_scopes
+            FROM soil_estimate_requests AS requests
+            JOIN soil_readings AS readings ON readings.id = requests.reading_id
+            JOIN farms ON farms.id = readings.farm_id
+            JOIN officer_location_consent_records AS consent
+              ON consent.id = requests.consent_record_id
+             AND consent.farm_id = readings.farm_id
+             AND consent.visit_id = readings.visit_id
+             AND consent.farmer_id = farms.owner_id
+             AND consent.officer_user_id = readings.officer_user_id
+            WHERE requests.id = %s
+              AND readings.reading_source = 'OFFICER_FIELD_COLLECTION'
+            FOR UPDATE OF requests
+            """,
+            (request_id,),
+        )
+        request = cursor.fetchone()
+        if request is None or request["status"] != "pending" or request["excluded_at"] is not None:
+            raise ValueError("Only a pending request for an active field reading can be completed.")
+        if THIRD_PARTY_SOIL_CONSENT_SCOPE not in request["consent_scopes"]:
+            raise ValueError("Current third-party soil-service consent is required.")
+
+        requested_layers = request["layers_requested"]
+        if isinstance(requested_layers, str):
+            requested_layers = json.loads(requested_layers)
+        if set(estimates_by_property) != set(requested_layers):
+            raise ValueError("The returned estimates must match the requested iSDA properties.")
+
+        reading_quality = (
+            "estimated"
+            if all(
+                estimate.measurement.quality_status == "estimated"
+                for estimate in estimates_by_property.values()
+            )
+            else "mixed"
+        )
+        cursor.execute(
+            """
+            INSERT INTO soil_readings (
+                farm_id, officer_user_id, visit_id, reading_source, sampled_at, sample_year,
+                source_label, top_cm, bottom_cm, location_uncertainty_m, latitude, longitude,
+                source_provider, source_dataset_id, source_dataset_version, source_license,
+                source_attribution, source_retrieved_at, measurement_quality, source_reading_id
+            )
+            VALUES (
+                %s, %s, %s, 'ISDA_SOIL_ESTIMATE', %s, %s,
+                'iSDAsoil modelled estimate', %s, %s, %s, %s, %s,
+                'ISDA_SOIL', %s, %s, %s, %s, %s, %s, %s
+            )
+            RETURNING id
+            """,
+            (
+                request["farm_id"],
+                request["officer_user_id"],
+                request["visit_id"],
+                request["sampled_at"],
+                request["sample_year"],
+                request["top_cm"],
+                request["bottom_cm"],
+                request["location_uncertainty_m"],
+                request["rounded_latitude"],
+                request["rounded_longitude"],
+                dataset_id.strip(),
+                dataset_version.strip(),
+                license_identifier.strip(),
+                attribution.strip(),
+                retrieved_at,
+                reading_quality,
+                request["reading_id"],
+            ),
+        )
+        snapshot = cursor.fetchone()
+        if snapshot is None:
+            raise DatabaseUnavailable("The iSDA estimate snapshot was not created.")
+        snapshot_id = str(snapshot["id"])
+
+        for property_name, estimate in estimates_by_property.items():
+            measurement = estimate.measurement
+            cursor.execute(
+                """
+                INSERT INTO soil_measurements (
+                    soil_reading_id, source_analyte, analyte_code, value, source_value_text,
+                    source_unit, canonical_unit, analytical_method, quality_status,
+                    uncertainty_lower, uncertainty_upper, interval_level, depth_layer,
+                    depth_top_cm, depth_bottom_cm, transformations, normalization_error
+                )
+                VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, NULL, %s,
+                    %s, %s, %s, %s, %s, %s, %s::jsonb, %s
+                )
+                """,
+                (
+                    snapshot_id,
+                    property_name,
+                    estimate.analyte,
+                    measurement.value,
+                    measurement.source_value_text,
+                    measurement.source_unit,
+                    measurement.canonical_unit,
+                    measurement.quality_status,
+                    estimate.uncertainty_lower,
+                    estimate.uncertainty_upper,
+                    estimate.interval_level,
+                    estimate.depth_layer,
+                    estimate.depth_top_cm,
+                    estimate.depth_bottom_cm,
+                    json.dumps(measurement.transformations),
+                    measurement.normalization_error,
+                ),
+            )
+
+        cursor.execute(
+            """
+            UPDATE soil_estimate_requests
+            SET status = 'ok', http_status = %s, error_text = NULL, estimate_reading_id = %s
+            WHERE id = %s AND status = 'pending'
+            RETURNING id
+            """,
+            (http_status, snapshot_id, request_id),
+        )
+        if cursor.fetchone() is None:
+            raise ValueError("The iSDA request was no longer pending.")
+        return {"requestId": request_id, "readingId": snapshot_id, "status": "ok"}
+
+
+@_database_errors_as_unavailable
+def fail_isda_estimate_request(
+    request_id: str,
+    failure_code: str,
+    *,
+    http_status: int | None = None,
+) -> bool:
+    """Record a bounded failure code without persisting provider payloads or credentials."""
+    if failure_code not in _ISDA_FAILURE_CODES:
+        raise ValueError("Unsupported iSDA failure code.")
+    if http_status is not None and not 100 <= http_status <= 599:
+        raise ValueError("HTTP status must be between 100 and 599.")
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE soil_estimate_requests
+            SET status = 'failed', http_status = %s, error_text = %s
+            WHERE id = %s AND status = 'pending'
+            RETURNING id
+            """,
+            (http_status, failure_code, request_id),
+        )
+        return cursor.fetchone() is not None
+
+
 @_database_errors_as_unavailable
 def load_farmer_soil_readings(user_id: str, farm_id: str | None = None) -> list[SoilReading]:
     farm_filter = "AND readings.farm_id = %s" if farm_id is not None else ""
@@ -444,14 +881,20 @@ def load_farmer_soil_readings(user_id: str, farm_id: str | None = None) -> list[
                    readings.source_label, readings.top_cm, readings.bottom_cm,
                    readings.location_uncertainty_m, readings.latitude, readings.longitude,
                    readings.source_provider, readings.source_dataset_id, readings.source_record_id,
-                   readings.source_license, readings.source_attribution, readings.source_retrieved_at,
+                   readings.source_dataset_version, readings.source_license, readings.source_attribution,
+                   readings.source_retrieved_at,
                    measurements.analyte_code, measurements.value, measurements.source_unit,
                    measurements.canonical_unit, measurements.analytical_method,
-                   measurements.quality_status
+                   measurements.quality_status, measurements.source_value_text,
+                   measurements.uncertainty_lower, measurements.uncertainty_upper,
+                   measurements.interval_level, measurements.depth_layer,
+                   measurements.depth_top_cm, measurements.depth_bottom_cm,
+                   measurements.transformations, measurements.normalization_error
             FROM soil_readings AS readings
             JOIN farms ON farms.id = readings.farm_id AND farms.owner_id = %s
             LEFT JOIN soil_measurements AS measurements ON measurements.soil_reading_id = readings.id
-            WHERE TRUE {farm_filter}
+            WHERE {_operational_reading_filter("readings")}
+              {farm_filter}
             ORDER BY readings.sampled_at DESC NULLS LAST, readings.created_at DESC,
                      readings.id, measurements.id
             """,
@@ -463,17 +906,7 @@ def load_farmer_soil_readings(user_id: str, farm_id: str | None = None) -> list[
             if reading_key not in grouped:
                 grouped[reading_key] = (row, [])
             if row["analyte_code"] is not None:
-                grouped[reading_key][1].append(
-                    {
-                        "analyte": row["analyte_code"],
-                        "value": float(row["value"]) if row["value"] is not None else None,
-                        "source_unit": row["source_unit"] or "unknown",
-                        "canonical_unit": row["canonical_unit"],
-                        "analytical_method": row["analytical_method"],
-                        "quality_status": row["quality_status"],
-                        "uncertainty": None,
-                    }
-                )
+                grouped[reading_key][1].append(_soil_measurement_from_row(row))
         return [_soil_reading_from_row(row, values) for row, values in grouped.values()]
 
 
@@ -481,10 +914,21 @@ def load_farmer_soil_readings(user_id: str, farm_id: str | None = None) -> list[
 def create_farmer_soil_reading(
     user_id: str, farm_id: str, payload: FarmerSoilReadingCreateRequest
 ) -> SoilReading | None:
-    quality_statuses = {measurement.quality_status for measurement in payload.measurements}
-    reading_quality = (
-        "valid" if quality_statuses == {"valid"} else "missing" if quality_statuses == {"missing"} else "mixed"
-    )
+    normalized_measurements = [
+        (
+            measurement,
+            normalize_measurement(
+                analyte=measurement.analyte,
+                value=measurement.value,
+                source_unit=measurement.source_unit,
+                quality_status=measurement.quality_status,
+                source_value_text=measurement.source_value_text,
+            ),
+        )
+        for measurement in payload.measurements
+    ]
+    quality_statuses = {normalized.quality_status for _, normalized in normalized_measurements}
+    reading_quality = _aggregate_measurement_quality(quality_statuses)
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
@@ -500,8 +944,8 @@ def create_farmer_soil_reading(
             WHERE farms.id = %s AND farms.owner_id = %s AND farms.owner_verified = TRUE
             RETURNING id, farm_id, sampled_at, sample_year, source_label, top_cm, bottom_cm,
                       location_uncertainty_m, latitude, longitude, source_provider,
-                      source_dataset_id, source_record_id, source_license, source_attribution,
-                      source_retrieved_at
+                      source_dataset_id, source_dataset_version, source_record_id,
+                      source_license, source_attribution, source_retrieved_at
             """,
             (
                 payload.sampled_at,
@@ -522,35 +966,41 @@ def create_farmer_soil_reading(
             return None
 
         response_measurements: list[dict[str, Any]] = []
-        for measurement in payload.measurements:
+        for measurement, normalized in normalized_measurements:
             cursor.execute(
                 """
                 INSERT INTO soil_measurements (
                     soil_reading_id, source_analyte, analyte_code, value, source_value_text,
-                    source_unit, canonical_unit, analytical_method, quality_status, source_quality_class
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    source_unit, canonical_unit, analytical_method, quality_status, source_quality_class,
+                    transformations, normalization_error
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
                 """,
                 (
                     row["id"],
                     measurement.source_analyte or measurement.analyte,
                     measurement.analyte,
-                    measurement.value,
-                    measurement.source_value_text,
-                    measurement.source_unit,
-                    measurement.canonical_unit,
+                    normalized.value,
+                    normalized.source_value_text,
+                    normalized.source_unit,
+                    normalized.canonical_unit,
                     measurement.analytical_method,
-                    measurement.quality_status,
+                    normalized.quality_status,
                     measurement.source_quality_class,
+                    json.dumps(normalized.transformations),
+                    normalized.normalization_error,
                 ),
             )
             response_measurements.append(
                 {
                     "analyte": measurement.analyte,
-                    "value": measurement.value,
-                    "source_unit": measurement.source_unit,
-                    "canonical_unit": measurement.canonical_unit,
+                    "value": normalized.value,
+                    "source_unit": normalized.source_unit,
+                    "canonical_unit": normalized.canonical_unit,
                     "analytical_method": measurement.analytical_method,
-                    "quality_status": measurement.quality_status,
+                    "quality_status": normalized.quality_status,
+                    "source_value_text": normalized.source_value_text,
+                    "transformations": normalized.transformations,
+                    "normalization_error": normalized.normalization_error,
                     "uncertainty": None,
                 }
             )
@@ -586,7 +1036,10 @@ def load_farmer_recommendations(user_id: str, farm_id: str | None = None) -> lis
                     WHERE owned_farms.id = recommendations.farm_id
                       AND owned_farms.owner_id = %s
                 )
-            ) {farm_filter}
+            )
+              AND recommendations.review_status = 'approved'
+              AND {_recommendation_reading_filter("recommendations")}
+              {farm_filter}
             ORDER BY recommendations.created_at DESC, recommendations.id
             """,
             parameters,
@@ -613,11 +1066,13 @@ def create_farmer_recommendation_feedback(
 ) -> dict[str, Any] | None:
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             INSERT INTO recommendation_feedback (user_id, recommendation_id, response)
             SELECT %s, recommendations.id, %s
             FROM recommendations
             WHERE recommendations.id = %s
+              AND recommendations.review_status = 'approved'
+              AND {_recommendation_reading_filter("recommendations")}
               AND (
                   (
                       recommendations.user_id = %s
@@ -657,11 +1112,15 @@ def load_farmer_recommendation_feedback(
 ) -> list[dict[str, Any]]:
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """
-            SELECT id, recommendation_id, response, created_at
-            FROM recommendation_feedback
-            WHERE user_id = %s AND recommendation_id = %s
-            ORDER BY created_at, id
+            f"""
+            SELECT feedback.id, feedback.recommendation_id, feedback.response, feedback.created_at
+            FROM recommendation_feedback AS feedback
+            JOIN recommendations ON recommendations.id = feedback.recommendation_id
+            WHERE feedback.user_id = %s
+              AND feedback.recommendation_id = %s
+              AND recommendations.review_status = 'approved'
+              AND {_recommendation_reading_filter("recommendations")}
+            ORDER BY feedback.created_at, feedback.id
             """,
             (user_id, recommendation_id),
         )
@@ -744,7 +1203,7 @@ def load_officer_jurisdictions(officer_user_id: str) -> list[dict[str, Any]]:
 def load_officer_farmer_roster(officer_user_id: str) -> list[dict[str, Any]]:
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             SELECT farmers.id AS farmer_id, farmers.display_name,
                    farms.id AS farm_id, farms.name AS farm_name,
                    farms.county, farms.sub_county, farms.ward,
@@ -762,7 +1221,16 @@ def load_officer_farmer_roster(officer_user_id: str) -> list[dict[str, Any]]:
               ON farmers.id = farms.owner_id
              AND farmers.role = 'farmer'
              AND farmers.is_active = TRUE
-            LEFT JOIN soil_readings AS readings ON readings.farm_id = farms.id
+            LEFT JOIN soil_readings AS readings
+              ON readings.farm_id = farms.id
+             AND {_operational_reading_filter("readings")}
+             AND readings.reading_source IN (
+                 'FARMER_OBSERVATION', 'OFFICER_FIELD_COLLECTION'
+             )
+             AND readings.source_provider IN (
+                 'FARMER_OBSERVATION', 'OFFICER_FIELD_COLLECTION'
+             )
+             AND readings.measurement_quality IN ('valid', 'mixed')
             WHERE assignments.officer_user_id = %s
               AND assignments.is_active = TRUE
             GROUP BY farmers.id, farmers.display_name, farms.id, farms.name,
@@ -1853,10 +2321,15 @@ def load_officer_farm_readings(
                    readings.source_label, readings.top_cm, readings.bottom_cm,
                    readings.location_uncertainty_m, readings.latitude, readings.longitude,
                    readings.source_provider, readings.source_dataset_id, readings.source_record_id,
-                   readings.source_license, readings.source_attribution, readings.source_retrieved_at,
+                   readings.source_dataset_version, readings.source_license,
+                   readings.source_attribution, readings.source_retrieved_at,
                    measurements.analyte_code, measurements.value, measurements.source_unit,
                    measurements.canonical_unit, measurements.analytical_method,
-                   measurements.quality_status
+                   measurements.quality_status, measurements.source_value_text,
+                   measurements.uncertainty_lower, measurements.uncertainty_upper,
+                   measurements.interval_level, measurements.depth_layer,
+                   measurements.depth_top_cm, measurements.depth_bottom_cm,
+                   measurements.transformations, measurements.normalization_error
             FROM soil_readings AS readings
             JOIN farms ON farms.id = readings.farm_id
             JOIN officer_jurisdictions AS oj
@@ -1871,6 +2344,7 @@ def load_officer_farm_readings(
              AND officer.is_active = TRUE
             LEFT JOIN soil_measurements AS measurements ON measurements.soil_reading_id = readings.id
             WHERE readings.farm_id = %s
+              AND {_operational_reading_filter("readings")}
             ORDER BY readings.sampled_at DESC NULLS LAST, readings.created_at DESC,
                      readings.id, measurements.id
             """,
@@ -1882,17 +2356,7 @@ def load_officer_farm_readings(
             if reading_key not in grouped:
                 grouped[reading_key] = (row, [])
             if row["analyte_code"] is not None:
-                grouped[reading_key][1].append(
-                    {
-                        "analyte": row["analyte_code"],
-                        "value": float(row["value"]) if row["value"] is not None else None,
-                        "source_unit": row["source_unit"] or "unknown",
-                        "canonical_unit": row["canonical_unit"],
-                        "analytical_method": row["analytical_method"],
-                        "quality_status": row["quality_status"],
-                        "uncertainty": None,
-                    }
-                )
+                grouped[reading_key][1].append(_soil_measurement_from_row(row))
         return [_soil_reading_from_row(row, values) for row, values in grouped.values()]
 
 
@@ -3802,9 +4266,38 @@ def record_officer_field_collection(
     sampled_at: datetime | None = None,
     notes: str | None = None,
     mark_completed: bool = True,
+    location_storage_consent: bool = False,
+    location_consent_notes: str | None = None,
 ) -> dict[str, Any] | None:
+    if not location_storage_consent:
+        raise ValueError("Farmer consent is required before storing exact farm coordinates.")
+    if not isinstance(location_consent_notes, str) or not location_consent_notes.strip():
+        raise ValueError("Consent notes must not be blank.")
+
     sampled_at = sampled_at or datetime.now(UTC)
     measurements = measurements or []
+    normalized_measurements: list[tuple[dict[str, Any], Any]] = []
+    for measurement in measurements:
+        source_unit = measurement.get("source_unit")
+        if not isinstance(source_unit, str) or not source_unit.strip():
+            raise ValueError("A non-empty source unit is required for each measurement.")
+        normalized_measurements.append(
+            (
+                measurement,
+                normalize_measurement(
+                    analyte=measurement.get("analyte", ""),
+                    value=measurement.get("value"),
+                    source_unit=source_unit,
+                    quality_status=measurement.get("quality_status", "sample"),
+                    source_value_text=measurement.get("source_value_text"),
+                ),
+            )
+        )
+    quality_statuses = {
+        normalized.quality_status for _, normalized in normalized_measurements
+    }
+    reading_quality = _aggregate_measurement_quality(quality_statuses)
+
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """
@@ -3815,6 +4308,7 @@ def record_officer_field_collection(
             JOIN users AS u ON u.id = v.farmer_id
             WHERE v.id = %s AND v.officer_user_id = %s
               AND v.status IN ('claimed', 'scheduled', 'in_progress')
+            FOR UPDATE OF f
             """,
             (visit_id, officer_user_id),
         )
@@ -3825,12 +4319,59 @@ def record_officer_field_collection(
         farm_id = visit_row["farm_id"]
         farmer_id = visit_row["farmer_id"]
         farm_name = visit_row["farm_name"]
-        farm_county = visit_row["county"] or "Nyeri"
+        farm_county = (visit_row["county"] or "").strip()
+        if not farm_county:
+            raise ValueError("Farm county must be set before recording field data for agronomist review.")
         farm_sub_county = visit_row["sub_county"]
         farm_ward = visit_row["ward"]
         farm_size_acres = float(visit_row["size_acres"]) if visit_row["size_acres"] is not None else 1.0
         crops_str = visit_row["crops"] or "maize"
         primary_crop = crops_str.split(",")[0].strip().lower() if crops_str else "maize"
+
+        cursor.execute(
+            """
+            INSERT INTO officer_location_consent_records (
+                farm_id, visit_id, farmer_id, officer_user_id, consent_scopes,
+                wording_version, consent_notes
+            )
+            VALUES (%s, %s, %s, %s, ARRAY['store_exact_coordinates']::text[], %s, %s)
+            """,
+            (
+                farm_id,
+                visit_id,
+                farmer_id,
+                officer_user_id,
+                OFFICER_LOCATION_STORAGE_CONSENT_WORDING_VERSION,
+                location_consent_notes.strip(),
+            ),
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO farm_location_history (
+                farm_id, visit_id, changed_by, previous_latitude, previous_longitude,
+                replacement_latitude, replacement_longitude
+            )
+            SELECT id, %s, %s, latitude, longitude, %s, %s
+            FROM farms
+            WHERE id = %s
+              AND latitude IS NOT NULL
+              AND longitude IS NOT NULL
+              AND (
+                  latitude IS DISTINCT FROM %s
+                  OR longitude IS DISTINCT FROM %s
+              )
+            """,
+            (
+                visit_id,
+                officer_user_id,
+                latitude,
+                longitude,
+                farm_id,
+                latitude,
+                longitude,
+            ),
+        )
 
         cursor.execute(
             """
@@ -3847,7 +4388,6 @@ def record_officer_field_collection(
             (latitude, longitude, longitude, latitude, officer_user_id, farm_id),
         )
 
-        reading_quality = "valid"
         cursor.execute(
             """
             INSERT INTO soil_readings (
@@ -3879,29 +4419,34 @@ def record_officer_field_collection(
         reading_id = cursor.fetchone()["id"]
 
         soil_values_dict: dict[str, float | None] = {}
-        for m in measurements:
+        for m, normalized in normalized_measurements:
             analyte_name = m.get("analyte") or m.get("source_analyte")
-            analyte_val = _safe_float(m.get("value"))
+            analyte_val = (
+                normalized.value if normalized.quality_status == "valid" else None
+            )
             if analyte_name:
                 soil_values_dict[analyte_name] = analyte_val
             cursor.execute(
                 """
                 INSERT INTO soil_measurements (
                     soil_reading_id, source_analyte, analyte_code, value, source_value_text,
-                    source_unit, canonical_unit, analytical_method, quality_status, source_quality_class
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    source_unit, canonical_unit, analytical_method, quality_status, source_quality_class,
+                    transformations, normalization_error
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
                 """,
                 (
                     reading_id,
                     m.get("source_analyte") or m.get("analyte"),
                     m.get("analyte"),
                     analyte_val,
-                    m.get("source_value_text"),
-                    m.get("source_unit") or "",
-                    m.get("canonical_unit"),
-                    m.get("analytical_method") or "Field Kit / Sensor",
-                    m.get("quality_status") or "valid",
+                    normalized.source_value_text,
+                    normalized.source_unit,
+                    normalized.canonical_unit,
+                    m.get("analytical_method"),
+                    normalized.quality_status,
                     m.get("source_quality_class"),
+                    json.dumps(normalized.transformations),
+                    normalized.normalization_error,
                 ),
             )
 
@@ -4026,7 +4571,7 @@ def load_unverified_assessments(
     with _connect() as connection, connection.cursor() as cursor:
         if role in ("extension_officer", "extension-officer"):
             cursor.execute(
-                """
+                f"""
                 SELECT a.id, a.farm_id, a.soil_reading_id, a.visit_id, a.officer_user_id,
                        a.claiming_agronomist_id, a.status, a.review_stage, a.county, a.sub_county,
                        a.ward, a.crop, a.engine_version, a.engine_baseline, a.officer_edits,
@@ -4036,17 +4581,18 @@ def load_unverified_assessments(
                 FROM agronomic_assessments AS a
                 JOIN farms AS f ON f.id = a.farm_id
                 JOIN users AS u ON u.id = f.owner_id
-                LEFT JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
+                JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
                 LEFT JOIN users AS officer ON officer.id = a.officer_user_id
                 WHERE a.officer_user_id = %s
                   AND a.status = 'unverified'
+                  AND {_measured_reading_filter("sr")}
                 ORDER BY a.created_at DESC
                 """,
                 (user_id,),
             )
         elif role == "agronomist":
             cursor.execute(
-                """
+                f"""
                 SELECT a.id, a.farm_id, a.soil_reading_id, a.visit_id, a.officer_user_id,
                        a.claiming_agronomist_id, a.status, a.review_stage, a.county, a.sub_county,
                        a.ward, a.crop, a.engine_version, a.engine_baseline, a.officer_edits,
@@ -4056,11 +4602,12 @@ def load_unverified_assessments(
                 FROM agronomic_assessments AS a
                 JOIN farms AS f ON f.id = a.farm_id
                 JOIN users AS u ON u.id = f.owner_id
-                LEFT JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
+                JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
                 LEFT JOIN users AS officer ON officer.id = a.officer_user_id
                 JOIN agronomist_profiles AS ap ON ap.user_id = %s
                 WHERE a.status = 'unverified'
                   AND ap.approval_status = 'approved'
+                  AND {_measured_reading_filter("sr")}
                   AND (
                       a.claiming_agronomist_id = ap.user_id
                       OR (
@@ -4118,7 +4665,7 @@ def claim_agronomic_assessment(agronomist_user_id: str, assessment_id: str) -> d
     """Atomic claim of an unverified assessment by an agronomist."""
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             UPDATE agronomic_assessments AS a
             SET claiming_agronomist_id = %s,
                 review_stage = 'claimed',
@@ -4134,6 +4681,12 @@ def claim_agronomic_assessment(agronomist_user_id: str, assessment_id: str) -> d
                     AND ap.approval_status = 'approved'
                     AND ap.county IS NOT NULL
                     AND a.county ILIKE ap.county
+              )
+              AND EXISTS (
+                  SELECT 1
+                  FROM soil_readings AS sr
+                  WHERE sr.id = a.soil_reading_id
+                    AND {_measured_reading_filter("sr")}
               )
             RETURNING id, farm_id, claiming_agronomist_id, review_stage, status, county
             """,
@@ -4206,20 +4759,25 @@ def edit_agronomic_assessment(
     with _connect() as connection, connection.cursor() as cursor:
         if role in ("extension_officer", "extension-officer"):
             cursor.execute(
-                """
+                f"""
                 UPDATE agronomic_assessments
                 SET officer_edits = officer_edits || %s::jsonb,
                     updated_at = NOW()
                 WHERE id = %s
                   AND officer_user_id = %s
                   AND status = 'unverified'
+                  AND EXISTS (
+                      SELECT 1 FROM soil_readings AS sr
+                      WHERE sr.id = agronomic_assessments.soil_reading_id
+                        AND {_measured_reading_filter("sr")}
+                  )
                 RETURNING id, farm_id, status, officer_edits, agronomist_edits
                 """,
                 (json.dumps([new_edit_entry]), assessment_id, user_id),
             )
         elif role == "agronomist":
             cursor.execute(
-                """
+                f"""
                 UPDATE agronomic_assessments
                 SET agronomist_edits = agronomist_edits || %s::jsonb,
                     review_stage = 'under_review',
@@ -4227,6 +4785,11 @@ def edit_agronomic_assessment(
                 WHERE id = %s
                   AND claiming_agronomist_id = %s
                   AND status = 'unverified'
+                  AND EXISTS (
+                      SELECT 1 FROM soil_readings AS sr
+                      WHERE sr.id = agronomic_assessments.soil_reading_id
+                        AND {_measured_reading_filter("sr")}
+                  )
                 RETURNING id, farm_id, status, officer_edits, agronomist_edits
                 """,
                 (json.dumps([new_edit_entry]), assessment_id, user_id),
@@ -4247,12 +4810,170 @@ def edit_agronomic_assessment(
         }
 
 
+_PRESCRIPTION_RATE_PATTERN = re.compile(
+    r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(kg|t)\s*/\s*(ha|acre)\b",
+    re.IGNORECASE,
+)
+_PRESCRIPTION_BAG_SIZE_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*kg", re.IGNORECASE)
+_ACRES_TO_HECTARES = Decimal("0.404686")
+_COMMERCIAL_CATEGORY_BY_PRESCRIPTION = {
+    "liming": "soil amendment",
+    "basal_fertilizer": "basal planting fertilizer",
+    "topdressing": "top-dressing fertilizer",
+    "soil_rehabilitation": "organic soil amendment",
+}
+_SCHEDULE_STAGE_BY_PRESCRIPTION = {
+    "liming": "pre-planting",
+    "basal_fertilizer": "planting time",
+    "topdressing": "knee-high",
+}
+
+
+def _parse_prescription_rate(rate: Any) -> tuple[Decimal, str, str]:
+    if not isinstance(rate, str):
+        raise ValueError("Every published prescription rate must include a numeric rate and unit.")
+    match = _PRESCRIPTION_RATE_PATTERN.match(rate)
+    if match is None:
+        raise ValueError(f"Could not parse published prescription rate {rate!r}.")
+    try:
+        value = Decimal(match.group(1))
+    except InvalidOperation as exc:
+        raise ValueError(f"Could not parse published prescription rate {rate!r}.") from exc
+    if not value.is_finite() or value < 0:
+        raise ValueError("Published prescription rates must be finite and non-negative.")
+    unit = match.group(2).lower()
+    area = match.group(3).lower()
+    return value, unit, area
+
+
+def _format_prescription_number(value: Decimal, places: int = 2) -> str:
+    rounded = value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+    return f"{rounded:.{places}f}".rstrip("0").rstrip(".")
+
+
+def _recalculate_prescription_quantities(
+    prescription: dict[str, Any],
+    edited_field: str,
+    edited_rate: str,
+    farm_acres: Any,
+    commercial_inputs: list[dict[str, Any]],
+    split_schedule: list[dict[str, Any]],
+) -> None:
+    try:
+        acres = Decimal(str(farm_acres))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("Farm acreage is required to recalculate an edited prescription.") from exc
+    if not acres.is_finite() or acres <= 0:
+        raise ValueError("Positive farm acreage is required to recalculate an edited prescription.")
+
+    rate, unit, area = _parse_prescription_rate(edited_rate)
+    if edited_field == "ratePerHa":
+        if area != "ha":
+            raise ValueError("ratePerHa adjustments must be expressed per hectare.")
+        rate_per_ha = rate
+    elif edited_field == "ratePerAcre":
+        if area != "acre":
+            raise ValueError("ratePerAcre adjustments must be expressed per acre.")
+        rate_per_ha = rate / _ACRES_TO_HECTARES
+    else:
+        raise ValueError(f"Unsupported prescription rate field {edited_field!r}.")
+
+    rate_per_acre = rate_per_ha * _ACRES_TO_HECTARES
+    total = rate_per_ha * acres * _ACRES_TO_HECTARES
+    category = str(prescription.get("category", "")).casefold()
+    commercial_category = _COMMERCIAL_CATEGORY_BY_PRESCRIPTION.get(category)
+    commercial_matches = [
+        item
+        for item in commercial_inputs
+        if commercial_category
+        and str(item.get("category", "")).casefold() == commercial_category
+    ]
+    if len(commercial_matches) > 1:
+        raise ValueError(
+            f"Cannot safely match the {category} prescription to a single commercial input."
+        )
+
+    commercial_input = commercial_matches[0] if commercial_matches else None
+    bag_unit = commercial_input.get("bagUnit") if commercial_input else None
+    bag_size_kg: Decimal | None = None
+    if isinstance(bag_unit, str):
+        bag_match = _PRESCRIPTION_BAG_SIZE_PATTERN.search(bag_unit)
+        if bag_match is not None:
+            bag_size_kg = Decimal(bag_match.group(1))
+            if not bag_size_kg.is_finite() or bag_size_kg <= 0:
+                raise ValueError(f"Invalid commercial input bag size {bag_unit!r}.")
+    if (
+        commercial_input
+        and "totalBagsNeeded" in commercial_input
+        and bag_size_kg is None
+    ):
+        raise ValueError(
+            f"Cannot recalculate bag quantities without a valid bagUnit for {category}."
+        )
+
+    quantity_unit = "kg" if unit == "kg" else "tonnes"
+    total_in_display_unit = total if unit == "t" else total * Decimal("1000")
+    total_quantity_text = (
+        f"{_format_prescription_number(total_in_display_unit)} {quantity_unit}"
+    )
+    bag_count: int | None = None
+    if bag_size_kg is not None:
+        total_mass_kg = total * Decimal("1000") if unit == "t" else total
+        bag_count = int(
+            (total_mass_kg / bag_size_kg).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        )
+
+    rate_per_acre_text = (
+        f"{_format_prescription_number(rate_per_acre)} {unit}/acre"
+    )
+    if bag_size_kg is not None:
+        per_acre_mass_kg = rate_per_acre * (
+            Decimal("1000") if unit == "t" else Decimal("1")
+        )
+        bags_per_acre = per_acre_mass_kg / bag_size_kg
+        rate_per_acre_text += (
+            f" ({_format_prescription_number(bags_per_acre, 1)} bags/acre)"
+        )
+
+    prescription["ratePerHa"] = (
+        f"{_format_prescription_number(rate_per_ha)} {unit}/ha"
+    )
+    prescription["ratePerAcre"] = rate_per_acre_text
+    prescription["totalFarmPrescription"] = total_quantity_text
+    if bag_count is not None and isinstance(bag_unit, str):
+        prescription["totalFarmPrescription"] += f" ({bag_count} x {bag_unit})"
+        commercial_input["totalBagsNeeded"] = bag_count
+
+    stage_marker = _SCHEDULE_STAGE_BY_PRESCRIPTION.get(category)
+    if stage_marker and bag_count is not None:
+        for schedule_item in split_schedule:
+            stage = str(schedule_item.get("stage", "")).casefold()
+            if stage_marker not in stage:
+                continue
+            product = prescription.get("productType", "the prescribed input")
+            if category == "liming":
+                schedule_item["action"] = (
+                    f"Broadcast {bag_count} bags of {product} across "
+                    f"{_format_prescription_number(acres)} acres and plough in."
+                )
+            elif category == "basal_fertilizer":
+                schedule_item["action"] = (
+                    f"Apply {total_quantity_text} of {product} "
+                    f"(approx {bag_count} bags) as basal fertilizer."
+                )
+            else:
+                schedule_item["action"] = (
+                    f"Apply {total_quantity_text} of {product} "
+                    f"(approx {bag_count} bags) ring-placed around stems."
+                )
+            break
+
+
 @_database_errors_as_unavailable
 def publish_verified_assessment(
     agronomist_user_id: str,
     agronomist_name: str,
     assessment_id: str,
-    license_number: str | None = None,
     final_notes: str | None = None,
 ) -> dict[str, Any] | None:
     """
@@ -4261,24 +4982,34 @@ def publish_verified_assessment(
     """
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             SELECT a.id, a.farm_id, a.soil_reading_id, a.crop, a.county, a.sub_county, a.ward,
                    a.created_at, sr.sampled_at, officer.display_name AS officer_name,
                    a.engine_baseline, a.officer_edits, a.agronomist_edits,
-                   f.name AS farm_name, f.owner_id AS farmer_id
+                   f.name AS farm_name, f.owner_id AS farmer_id,
+                   ap.licence_number AS agronomist_licence_number
             FROM agronomic_assessments AS a
             JOIN farms AS f ON f.id = a.farm_id
-            LEFT JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
+            JOIN soil_readings AS sr ON sr.id = a.soil_reading_id
             LEFT JOIN users AS officer ON officer.id = a.officer_user_id
+            JOIN agronomist_profiles AS ap
+              ON ap.user_id = %s
+             AND ap.approval_status = 'approved'
             WHERE a.id = %s
               AND a.claiming_agronomist_id = %s
               AND a.status = 'unverified'
+              AND {_measured_reading_filter("sr")}
             """,
-            (assessment_id, agronomist_user_id),
+            (agronomist_user_id, assessment_id, agronomist_user_id),
         )
         row = cursor.fetchone()
         if row is None:
             return None
+        license_number = (row["agronomist_licence_number"] or "").strip()
+        if not license_number:
+            raise ValueError(
+                "Your approved agronomist profile must include a licence number before publishing."
+            )
 
         farm_id = row["farm_id"]
         reading_id = row["soil_reading_id"]
@@ -4287,6 +5018,8 @@ def publish_verified_assessment(
         baseline = row["engine_baseline"] or {}
         diagnoses = [dict(item) for item in baseline.get("diagnoses", [])]
         prescriptions = [dict(item) for item in baseline.get("prescriptions", [])]
+        commercial_inputs = [dict(item) for item in baseline.get("commercialInputs", [])]
+        split_schedule = [dict(item) for item in baseline.get("splitSchedule", [])]
         for edit in row["agronomist_edits"] or []:
             for adjustment in edit.get("adjustments", []):
                 section = adjustment.get("section")
@@ -4317,6 +5050,15 @@ def publish_verified_assessment(
                     continue
                 if matching is not None:
                     matching[field] = value
+                    if section == "prescription" and field in {"ratePerHa", "ratePerAcre"}:
+                        _recalculate_prescription_quantities(
+                            matching,
+                            field,
+                            value,
+                            baseline.get("farmAcreage"),
+                            commercial_inputs,
+                            split_schedule,
+                        )
 
         verified_doc = {
             "reportId": str(uuid.uuid4()),
@@ -4334,19 +5076,19 @@ def publish_verified_assessment(
             "publishedBy": {
                 "agronomistId": agronomist_user_id,
                 "name": agronomist_name,
-                "licenseNumber": license_number or "KALRO/AGR-KE-VERIFIED",
+                "licenseNumber": license_number,
             },
             "status": "verified",
             "diagnoses": diagnoses,
             "prescriptions": prescriptions,
-            "commercialInputs": baseline.get("commercialInputs", []),
-            "splitSchedule": baseline.get("splitSchedule", []),
+            "commercialInputs": commercial_inputs,
+            "splitSchedule": split_schedule,
             "aiAdvisoryNotes": baseline.get("aiAdvisoryNotes", []),
             "officerEdits": row["officer_edits"],
             "agronomistEdits": row["agronomist_edits"],
             "finalAgronomistNotes": final_notes,
             "certification": (
-                f"Certified by Licensed Agronomist {agronomist_name} ({license_number or 'KALRO/AGR-KE'}). "
+                f"Certified by Licensed Agronomist {agronomist_name} ({license_number}). "
                 "Verified and published for farmer field application."
             ),
         }
@@ -4368,12 +5110,106 @@ def publish_verified_assessment(
         cursor.execute(
             """
             UPDATE recommendations
-            SET review_status = 'approved',
+            SET review_status = 'pending_review',
                 updated_at = NOW()
             WHERE soil_reading_id = %s
             """,
             (reading_id,),
         )
+        for prescription in prescriptions:
+            rate_per_ha, rate_unit, rate_area = _parse_prescription_rate(
+                prescription.get("ratePerHa")
+            )
+            if rate_area != "ha":
+                raise ValueError("Published prescription ratePerHa values must be per hectare.")
+            product_type = prescription.get("productType")
+            if not isinstance(product_type, str) or not product_type.strip():
+                raise ValueError("Every published prescription must have a product type.")
+            rationale = " ".join(
+                part
+                for part in (
+                    str(prescription.get("totalFarmPrescription") or "").strip(),
+                    str(prescription.get("applicationTiming") or "").strip(),
+                )
+                if part
+            )
+            cursor.execute(
+                """
+                UPDATE recommendations
+                SET crop = %s,
+                    title = %s,
+                    rationale = %s,
+                    application_rate = %s,
+                    application_unit = %s,
+                    rule_version = %s,
+                    review_status = 'approved',
+                    updated_at = NOW()
+                WHERE soil_reading_id = %s
+                  AND user_id = %s
+                  AND farm_id = %s
+                  AND title = %s
+                """,
+                (
+                    verified_doc["crop"],
+                    product_type,
+                    rationale,
+                    float(rate_per_ha),
+                    f"{rate_unit}/ha",
+                    baseline.get("engineVersion"),
+                    reading_id,
+                    farmer_id,
+                    farm_id,
+                    product_type,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO recommendations (
+                    soil_reading_id, user_id, farm_id, crop, title, rationale,
+                    application_rate, application_unit, rule_version, review_status
+                )
+                SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, 'approved'
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM recommendations
+                    WHERE soil_reading_id = %s
+                      AND user_id = %s
+                      AND farm_id = %s
+                      AND title = %s
+                )
+                """,
+                (
+                    reading_id,
+                    farmer_id,
+                    farm_id,
+                    verified_doc["crop"],
+                    product_type,
+                    rationale,
+                    float(rate_per_ha),
+                    f"{rate_unit}/ha",
+                    baseline.get("engineVersion"),
+                    reading_id,
+                    farmer_id,
+                    farm_id,
+                    product_type,
+                ),
+            )
+
+        if prescriptions:
+            prescription_details = "; ".join(
+                f"{prescription.get('productType', 'Prescription')}: "
+                f"{prescription.get('totalFarmPrescription') or prescription.get('ratePerHa')}"
+                for prescription in prescriptions
+            )
+            alert_summary = (
+                f"Your verified soil report for {farm_name} is published. "
+                f"Published prescriptions: {prescription_details}."
+            )
+        else:
+            alert_summary = (
+                f"Your verified soil report for {farm_name} is published. "
+                "No input prescriptions were included."
+            )
 
         cursor.execute(
             """
@@ -4388,7 +5224,7 @@ def publish_verified_assessment(
             (
                 farmer_id,
                 farm_id,
-                f"Your verified soil report for {farm_name} is published and ready. Customized lime, basal fertilizer, and topdressing schedules have been certified.",
+                alert_summary,
                 final_notes,
             ),
         )
@@ -4870,7 +5706,7 @@ def update_officer_alert(
 def load_officer_ward_summaries(officer_user_id: str) -> list[dict[str, Any]]:
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             SELECT farms.county, farms.sub_county, farms.ward,
                    COUNT(DISTINCT farmers.id) AS farmer_count,
                    COUNT(DISTINCT farms.id) AS farm_count,
@@ -4890,11 +5726,18 @@ def load_officer_ward_summaries(officer_user_id: str) -> list[dict[str, Any]]:
               ON farmers.id = farms.owner_id
              AND farmers.role = 'farmer'
              AND farmers.is_active = TRUE
-            LEFT JOIN soil_readings AS readings ON readings.farm_id = farms.id
-            LEFT JOIN soil_measurements AS measurements ON measurements.soil_reading_id = readings.id
+            LEFT JOIN soil_readings AS readings
+              ON readings.farm_id = farms.id
+             AND {_measured_reading_filter("readings")}
+            LEFT JOIN soil_measurements AS measurements
+              ON measurements.soil_reading_id = readings.id
+             AND measurements.quality_status = 'valid'
             WHERE oj.officer_user_id = %s
               AND oj.is_active = TRUE
             GROUP BY farms.county, farms.sub_county, farms.ward
+            HAVING COUNT(DISTINCT CASE
+                       WHEN measurements.id IS NOT NULL THEN farmers.id
+                   END) >= 3
             ORDER BY farms.county, farms.sub_county, farms.ward
             """,
             (officer_user_id,),
@@ -4910,7 +5753,7 @@ def load_officer_ward_summaries(officer_user_id: str) -> list[dict[str, Any]]:
                     "farmCount": int(row["farm_count"]),
                     "readingCount": int(row["reading_count"]),
                     "sampleCount": int(row["sample_count"]),
-                    "aggregationLimits": "Ward-level aggregate. Small cohorts (<3 samples) protected to prevent re-identification.",
+                    "aggregationLimits": "Ward-level aggregate shown only when at least 3 distinct farmers have valid field measurements.",
                     "dataFreshness": row["latest_sample_date"],
                 }
             )
@@ -4942,9 +5785,34 @@ def export_officer_report(
             return None
 
         cursor.execute(
-            """
+            f"""
+            SELECT COUNT(DISTINCT farms.owner_id) AS farmer_count
+            FROM farms
+            JOIN officer_jurisdictions AS oj
+              ON oj.officer_user_id = %s
+             AND oj.is_active = TRUE
+             AND (oj.county IS NULL OR farms.county = oj.county)
+             AND (oj.sub_county IS NULL OR farms.sub_county = oj.sub_county)
+             AND (oj.ward IS NULL OR farms.ward = oj.ward)
+            JOIN soil_readings AS readings
+              ON readings.farm_id = farms.id
+             AND {_measured_reading_filter("readings")}
+            JOIN soil_measurements AS measurements
+              ON measurements.soil_reading_id = readings.id
+             AND measurements.quality_status = 'valid'
+            WHERE (%s IS NULL OR farms.county = %s)
+              AND (%s IS NULL OR farms.sub_county = %s)
+              AND (%s IS NULL OR farms.ward = %s)
+            """,
+            (officer_user_id, county, county, sub_county, sub_county, ward, ward),
+        )
+        cohort = cursor.fetchone()
+        if cohort is None or int(cohort["farmer_count"]) < 3:
+            return None
+
+        cursor.execute(
+            f"""
             SELECT readings.id AS reading_id,
-                   farmers.display_name AS farmer_name,
                    farms.name AS farm_name,
                    farms.county, farms.sub_county, farms.ward,
                    readings.sample_year, readings.sampled_at,
@@ -4954,17 +5822,19 @@ def export_officer_report(
                    measurements.source_unit, measurements.quality_status
             FROM soil_readings AS readings
             JOIN farms ON farms.id = readings.farm_id
-            JOIN users AS farmers ON farmers.id = farms.owner_id
             JOIN officer_jurisdictions AS oj
               ON oj.officer_user_id = %s
              AND oj.is_active = TRUE
              AND (oj.county IS NULL OR farms.county = oj.county)
              AND (oj.sub_county IS NULL OR farms.sub_county = oj.sub_county)
              AND (oj.ward IS NULL OR farms.ward = oj.ward)
-            LEFT JOIN soil_measurements AS measurements ON measurements.soil_reading_id = readings.id
+            JOIN soil_measurements AS measurements
+              ON measurements.soil_reading_id = readings.id
+             AND measurements.quality_status = 'valid'
             WHERE (%s IS NULL OR farms.county = %s)
               AND (%s IS NULL OR farms.sub_county = %s)
               AND (%s IS NULL OR farms.ward = %s)
+              AND {_measured_reading_filter("readings")}
             ORDER BY farms.county, farms.ward, readings.sampled_at DESC NULLS LAST
             LIMIT 500
             """,
@@ -4974,7 +5844,6 @@ def export_officer_report(
         records = [
             {
                 "readingId": str(row["reading_id"]),
-                "farmerName": row["farmer_name"],
                 "farmName": row["farm_name"],
                 "county": row["county"],
                 "subCounty": row["sub_county"],
@@ -4999,11 +5868,16 @@ def export_officer_report(
             "officerUserId": officer_user_id,
             "scope": {"county": county, "subCounty": sub_county, "ward": ward},
             "allowlistedFields": [
-                "readingId", "farmerName", "farmName", "county", "subCounty", "ward",
+                "readingId", "farmName", "county", "subCounty", "ward",
                 "sampleYear", "sampledAt", "topCm", "bottomCm", "sourceProvider",
                 "analyte", "value", "unit", "qualityStatus"
             ],
-            "privacyDisclaimer": "Exported under reviewed extension services access policy. Phone numbers, national IDs, and exact coordinates are strictly excluded.",
+            "privacyDisclaimer": (
+                "Exported under reviewed extension services access policy. Farmer names, "
+                "phone numbers, national IDs, and exact coordinates are excluded. Exports "
+                "are suppressed unless at least three distinct farmers have valid field "
+                "measurements in the selected scope."
+            ),
             "recordCount": len(records),
             "exportedAt": datetime.now(UTC),
             "records": records,
@@ -5276,7 +6150,13 @@ def load_admin_system_overview(admin_user_id: str) -> dict[str, Any]:
         farm_row = cursor.fetchone() or {"total_farms": 0}
 
         # Readings count
-        cursor.execute("SELECT COUNT(*) AS total_readings FROM soil_readings")
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS total_readings
+            FROM soil_readings AS readings
+            WHERE {_operational_reading_filter("readings")}
+            """
+        )
         reading_row = cursor.fetchone() or {"total_readings": 0}
 
         # Sync drafts counts

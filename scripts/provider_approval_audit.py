@@ -16,22 +16,20 @@ from textwrap import dedent
 
 PROVIDERS = {
     "PROJECT_SOIL_DATASET": {
-        "type": "project-provided local soil dataset",
-        "owner": "Supplier attribution intentionally omitted; prototype use is assumed by the project owner",
+        "type": "retired project-provided local soil dataset",
+        "owner": "Rights holder and license are unconfirmed",
         "urls": [
             "No public license record has been reliably matched to this exact file",
         ],
         "required_evidence": [
-            "Keep the project owner's prototype-use assumption distinct from a public license finding",
-            "Document internally any restrictions on production storage, redistribution, and public display",
-            "Preserve measurement units, methods, depth labels, and project provenance where available",
-            "Separate historical recommendation text from measured treatment or harvest outcomes",
+            "Do not ingest, store, redistribute, or use this source for recommendations",
+            "Do not reactivate it unless the rights holder grants written permission for the intended uses",
+            "Keep historical recommendation text separate from measured treatment or harvest outcomes",
         ],
         "questions": [
-            "Which prototype processing uses are covered by the project owner's stated assumption?",
-            "What internal documentation is needed before production storage or redistribution?",
-            "Which records have compatible methods, units, and depth intervals for each analyte?",
-            "Are any labels measured outcomes, or only historical recommendation text?",
+            "Has the production database purge completed and been independently verified?",
+            "Have copies in repositories, deployments, and backups been handled under the rights holder's direction?",
+            "If permission is granted later, does it explicitly cover storage, model use, and derived recommendations?",
         ],
     },
     "ISRIC_WOSIS": {

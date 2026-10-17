@@ -1,0 +1,22 @@
+{
+  "property": {
+    "nitrogen_total": [
+      {
+        "value": {
+          "unit": "g/kg",
+          "type": "float",
+          "value": "12.5"
+        },
+        "depth": {
+          "value": "0-20",
+          "unit": "cm"
+        },
+        "uncertainty": {
+          "confidence_interval": "90%",
+          "lower_bound": "8.0",
+          "upper_bound": "17.0"
+        }
+      }
+    ]
+  }
+}

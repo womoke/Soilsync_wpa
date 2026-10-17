@@ -170,20 +170,20 @@ describe('AgronomistAccount', () => {
     })
   })
 
-  it('publishes a claimed assessment with the agronomist accreditation number', async () => {
+  it('publishes a claimed assessment using the approved profile licence', async () => {
     mocks.getUnverifiedAssessments.mockResolvedValue([
       { ...unclaimedAssessment, claimingAgronomistId: 'app-user-1', reviewStage: 'claimed' },
     ])
 
     render(<AgronomistAccount onBackToDemo={vi.fn()} />)
 
-    const licenseField = await screen.findByLabelText('Licence / accreditation number')
-    fireEvent.change(licenseField, { target: { value: 'KAAA-AGR-4091' } })
+    expect(
+      await screen.findByText(/licence number on your approved agronomist profile/i),
+    ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Publish verified report' }))
 
     await waitFor(() => {
       expect(mocks.publishAssessment).toHaveBeenCalledWith('agronomist-token', 'assessment-1', {
-        licenseNumber: 'KAAA-AGR-4091',
         finalNotes: undefined,
       })
     })

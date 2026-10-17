@@ -72,19 +72,19 @@ The GitHub Actions workflow `.github/workflows/unclaimed-account-lifecycle.yml` 
 
 ## Data Audit
 
-From the workspace root, regenerate the aggregate-only source profile with:
-
-```powershell
-python .\scripts\audit_soil_csv.py --output .\DATA_AUDIT.md
-```
-
-The source CSV is intentionally excluded from Git. Prototype use is assumed by the project owner; this is not a public-license finding or supplier attribution. Do not expose raw records or enable production storage/redistribution until applicable terms and restrictions are documented internally. See [DATA_AUDIT.md](DATA_AUDIT.md) and [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md).
+Rights for `soil_data_all.csv` have not been confirmed. Do not read, audit, import,
+redistribute, or use it for recommendations. The local CSV is ignored by Git; the
+historical audit at [DATA_AUDIT.md](DATA_AUDIT.md) is not a license. Production
+retirement is prepared as migration `backend/database/migrations/032_retire_project_soil_dataset.sql`;
+it still needs to be applied and verified against the production database. This
+database migration does not remove local copies, deployment artifacts, repository
+history, or backups.
 
 ## Current Status
 
 - Farmer overview, theme preference, API loading/fallback states, and local-only reading preview are implemented in the frontend.
 - Versioned soil-reading and recommendation interfaces are defined in `frontend/src/types/soil.ts`; the API validates and serves a matching synthetic record.
 - The FastAPI service now exposes health and config routes, versioned endpoints, and request validation for preview submissions while keeping the app in synthetic demo mode.
-- A repeatable import summary command for the project-provided soil CSV is available in the backend ingestion utility; it audits numeric validity, county coverage, and row acceptance without storing or exposing source values.
+- The former project CSV import path is retired pending confirmation of data rights and approval of a replacement source.
 - Persistent farmer records, PWA service worker/install manifest, and external soil-data adapters are still not implemented yet.
 - Recommendation thresholds and rates remain pending qualified agronomic review.

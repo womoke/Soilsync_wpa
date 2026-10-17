@@ -128,7 +128,7 @@ const mockVisitPool: officerApi.OfficerVisitItem[] = [
 const confirmGpsConsent = () => {
   fireEvent.click(
     screen.getByRole('checkbox', {
-      name: /I confirm the farmer has explicitly consented to recording exact GPS/i,
+      name: /I confirm the farmer explicitly consented to SoilSync storing this farm's exact GPS/i,
     }),
   )
   fireEvent.change(screen.getByPlaceholderText(/Farmer verbally agreed/i), {
@@ -484,7 +484,9 @@ describe('ExtensionOfficerAccount component', () => {
 
     confirmGpsConsent()
     fireEvent.click(screen.getByRole('button', { name: /Use current location/i }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Location is unavailable in this browser.')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Location is unavailable in this browser.',
+    )
 
     fireEvent.change(screen.getByPlaceholderText('e.g. 0.0512'), { target: { value: '0.0512' } })
     fireEvent.change(screen.getByPlaceholderText('e.g. 34.7521'), { target: { value: '34.7521' } })
@@ -500,6 +502,9 @@ describe('ExtensionOfficerAccount component', () => {
         expect.objectContaining({
           latitude: 0.0512,
           longitude: 34.7521,
+          locationStorageConsent: true,
+          locationConsentNotes:
+            'Farmer verbally agreed to capture exact GPS for this visit.',
           markCompleted: true,
         }),
       )
@@ -527,6 +532,30 @@ describe('ExtensionOfficerAccount component', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Enter valid latitude and longitude coordinates.',
+    )
+    expect(officerApi.recordOfficerFieldCollection).not.toHaveBeenCalled()
+  })
+
+  it('keeps Save & Mark Complete clickable and explains the consent requirement', async () => {
+    render(<ExtensionOfficerAccount onBackToDemo={vi.fn()} />)
+
+    fireEvent.change(screen.getByPlaceholderText('valid-officer-token'), {
+      target: { value: 'test-officer-token' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use Officer Token' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Collect Field Data/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Collect Field Data/i }))
+    const saveButton = screen.getByRole('button', { name: /Save & Mark Complete/i })
+
+    expect(saveButton).toBeEnabled()
+    fireEvent.click(saveButton)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Coordinates can only be stored with documented farmer consent.',
     )
     expect(officerApi.recordOfficerFieldCollection).not.toHaveBeenCalled()
   })

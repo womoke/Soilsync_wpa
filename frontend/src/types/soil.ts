@@ -1,8 +1,20 @@
 export type SoilDataProvider =
-  'PROJECT_SOIL_DATASET' | 'ISRIC_WOSIS' | 'ISRIC_SOILGRIDS' | 'FARMER_OBSERVATION' | 'DEMO'
+  | 'ISDA_SOIL'
+  | 'PROJECT_SOIL_DATASET'
+  | 'ISRIC_WOSIS'
+  | 'ISRIC_SOILGRIDS'
+  | 'FARMER_OBSERVATION'
+  | 'OFFICER_FIELD_COLLECTION'
+  | 'DEMO'
 
 export type SoilAnalyte =
-  'soil_ph' | 'total_nitrogen' | 'organic_carbon' | 'olsen_phosphorus' | 'exchangeable_potassium'
+  | 'soil_ph'
+  | 'total_nitrogen'
+  | 'organic_carbon'
+  | 'olsen_phosphorus'
+  | 'exchangeable_potassium'
+  | 'extractable_phosphorus'
+  | 'extractable_potassium'
 
 export type SoilMeasurementQuality =
   | 'valid'
@@ -19,20 +31,27 @@ export interface SoilMeasurement {
   canonicalUnit: string | null
   analyticalMethod: string | null
   qualityStatus: SoilMeasurementQuality
+  sourceValueText?: string | null
+  depthLayer?: string | null
+  depthTopCm?: number | null
+  depthBottomCm?: number | null
+  transformations?: string[]
+  normalizationError?: string | null
   uncertainty: {
-    intervalLevel: number
+    intervalLevel: number | null
     lower: number | null
     upper: number | null
   } | null
 }
 
 export interface SoilReading {
-  contractVersion: 1
+  contractVersion: 1 | 2
   readingId: string
   farmId: string | null
   source: {
     provider: SoilDataProvider
     datasetId: string | null
+    datasetVersion?: string | null
     recordId: string | null
     license: string | null
     attribution: string | null

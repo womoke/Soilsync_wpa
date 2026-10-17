@@ -56,23 +56,92 @@ The script creates or reuses the matching Supabase Auth identity, links or repai
 
 From `backend`, install the database driver with `python -m pip install -e ".[postgres]"` and configure `DATABASE_URL` in the workspace-root `.env` (copy `.env.example` as a template). For local Supabase, use the ignored workspace-root `.env.local`; the backend and migration manager load it before `.env`, while explicitly exported environment variables retain highest priority. Verify the target before running `--apply` or `--reconcile`. Use the Supabase session-pooler URL for hosted development; never place the database URL or service-role key in a `VITE_` variable.
 
-## Import the project soil dataset
+## Retired project soil dataset
 
-The loader reads only an explicit soil-data allowlist. It does not read or insert `farmers_Name`, `telephone_No`, or free-text farm descriptions. A dry run is the default and does not connect to a database:
+The rights for `soil_data_all.csv` have not been confirmed. Do not import, redistribute,
+or use it for recommendations. The legacy importer is disabled; its CSV audit mode
+does not write to the database.
 
-```bash
-cd backend
-python -m app.dataset_loader
+Before any cleanup, run the read-only inventory against a staging copy or restored
+backup:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\audit_retired_soil_data.py
 ```
 
-For a database import, install the optional PostgreSQL driver, set `DATABASE_URL` in the environment, review the dry-run counts, then explicitly apply:
+Run it from the repository root with the staging `DATABASE_URL` set in the process
+environment or in the workspace-root `.env` file. An explicit process variable
+takes precedence; the audit intentionally does not load `.env.local`. The script
+opens a read-only transaction and reports affected
+readings, assessments and published reports, ward-summary and officer-export
+impact, plus per-table row counts that
+migration `032` would delete or rename (including cascade effects and readings
+that could block provenance deletion). It intentionally omits farmer names and
+coordinates. Save and review the output before proceeding.
 
-```bash
-python -m pip install -e ".[postgres]"
-python -m app.dataset_loader --apply
-```
+Migration `033_quarantine_retired_soil_readings.sql` adds exclusion metadata and
+quarantines legacy-provider and demo readings without deleting them. Validate it
+against staging and verify the inventory and downstream views before deploying
+application code that reads `excluded_at`.
 
-The import is one transaction, records a SHA-256 batch fingerprint, and refuses to import the same file fingerprint twice. Each analyte is stored separately with its original value text, source unit, source class, and validity; invalid analytes do not discard the rest of a sample. Lab methods are left null because the CSV does not provide a method column. Do not use its historical fertilizer text as measured crop-response outcomes.
+Migration `034_soil_estimate_snapshots_and_measurement_quality.sql` adds the
+dataset-version snapshot, measurement uncertainty/depth/transformation metadata,
+and the per-reading estimate-request audit table. It does not fetch or store
+third-party estimates by itself; iSDA integration remains a separate, consent-
+gated work package.
+
+Migration `035_officer_location_consent.sql` adds an audit record for the
+farmer's consent to store exact farm coordinates, including the officer who
+recorded it, wording version, scope, notes, and timestamp. Field collection
+rejects missing consent and writes the consent record before updating farm
+coordinates, in the same transaction. The current consent scope is storage
+only; no permission to send coordinates to an external soil service is implied
+or recorded.
+
+Migration `036_farm_location_history.sql` records the prior and replacement
+coordinates when a consented officer collection changes a farm's location. The
+history write, storage-consent record, and farm update occur in one transaction;
+unchanged coordinates do not create a history row. The table has RLS enabled and
+is not exposed through farmer or officer read APIs.
+
+Migration `037_isda_snapshot_persistence.sql` adds provenance links between a
+measured field reading, its explicit third-party-consent record, the request
+audit row, and a separate `ISDA_SOIL` estimate snapshot. The backend has
+non-network persistence helpers for pending, successful, and failed requests;
+successful estimates remain marked `estimated` and are excluded from measured
+field-data cohorts. Request creation requires consent specifically scoped to
+third-party soil-service coordinate sharing, and the caller must supply
+policy-rounded coordinates and dataset/license/attribution metadata. The
+scaffolding checks those metadata fields are present but does not independently
+verify the values.
+No API route or job invokes these helpers or the iSDA client. Do not enable live
+requests or apply this migration until D1, D2, D7, and D15 are resolved and the
+ordered migration staging/backup gate is satisfied.
+
+Officer report exports omit farmer names and are suppressed unless the selected
+scope includes valid field measurements from at least three distinct farmers.
+The ward-summary endpoint uses the same minimum cohort threshold.
+
+Migration `032_retire_project_soil_dataset.sql` is destructive and was applied
+to production after a verified encrypted backup was restored and the migration
+sequence was rehearsed locally. Before application, the audit found 75,500
+project-source readings, 884,674 measurements, 75,500 provenance rows and one
+import batch to be removed; one dataset registry row was renamed. The local
+rehearsal matched those counts. Post-migration read-only verification found no
+remaining project-source readings or dataset keys; migration `033` quarantined
+one demo reading. There were no affected assessments or published reports.
+The encrypted backup is stored outside the repository under the current user's
+Documents backup folder; its AES-256-GCM key is protected with Windows DPAPI
+for that user. Database cleanup does not remove copies from repository history,
+deployment artifacts, or retained backups; handle those separately under
+applicable rights and retention requirements.
+
+Migrations `031` through `037` are recorded in production and their checksums
+match the local files. Confirm that the backend release containing the related
+application changes is deployed before relying on the new schema-dependent
+paths. The migration manager applies pending migrations in numeric order
+without prompting, so review the full pending sequence before using `--apply`
+against any hosted database.
 
 ## Backup and restore
 
@@ -100,7 +169,7 @@ mkdir -p backups
 - Map `id` to `source_record_id`, `lab_No`/`lab_No_Year` to lab references, `year` to `sample_year`, and county/constituency/ward/village to their corresponding fields. Preserve both original `latitude`/`longitude` and `final_Latitude`/`final_Longitude`; only populate the indexed location pair from a valid pair and record its basis in `coordinate_source`.
 - Map `soil_depth_cm` to the verbatim depth label; set numeric depth bounds only when the source provides a supported mapping. Map each analyte and its paired `*_Class` field to one `soil_measurements` row, preserving the exact input header in `source_analyte` and the class in `source_quality_class`. Leave `analytical_method` null because this CSV has no method column.
 - Store `crop` and `fertilizer_Recommendation` as source text for context only. Do not map recommendation text to treatment efficacy or yield outcomes.
-- Project-provided soil data may inform prototype benchmarks under the project owner's stated assumption. External ISRIC records remain subject to source-specific license filtering, provenance, and agronomic review before persistence or farmer-facing use.
+- The retired project dataset is not approved for prototype or production use. External ISRIC records remain subject to source-specific license filtering, provenance, and agronomic review before persistence or farmer-facing use.
 - Migration `007_farmer_recommendation_feedback.sql` creates append-only, RLS-enabled feedback events; writes are owner-checked by the backend and no client policies are granted.
 - Migration `008_farm_ownership_review.sql` defaults farms to pending owner review; only an approved farm accepts farmer reading mutations.
 - Migration `009_farmer_sync_records.sql` replaces shared runtime-state sync data with RLS-enabled, owner/farm-linked draft and queue tables. `draft_id` uniqueness makes queue retries idempotent.

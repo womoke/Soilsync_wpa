@@ -1,12 +1,7 @@
-import csv
 from datetime import UTC, datetime
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from app.models import SoilReading, SoilRecommendation
-
-REAL_DATA_PATH = Path(__file__).resolve().parents[2] / "soil_data_all.csv"
 
 # ---------------------------------------------------------------------------
 # Priority Kenyan Crop Agronomic Standards (KALRO Guidelines)
@@ -138,6 +133,23 @@ COUNTY_AEZ_FACTORS: dict[str, dict[str, Any]] = {
 DEFAULT_AEZ = {"zone": "General Kenyan Midland Agro-Ecological Zone", "buffer_factor": 1.7, "p_fixation": "moderate"}
 
 
+def _demo_benchmark_values() -> dict[str, float]:
+    return {
+        "soil_ph": 6.2,
+        "total_nitrogen": 0.12,
+        "organic_carbon": 1.5,
+        "olsen_phosphorus": 18.0,
+        "exchangeable_potassium": 0.32,
+    }
+
+
+def _measurement_map(reading: SoilReading) -> dict[str, float | None]:
+    values: dict[str, float | None] = {}
+    for measurement in reading.measurements:
+        values[measurement.analyte] = measurement.value
+    return values
+
+
 def _safe_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -152,61 +164,10 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
-@lru_cache(maxsize=1)
-def _generate_real_data_benchmarks() -> dict[str, float]:
-    benchmarks = {
-        "soil_ph": 6.2,
-        "total_nitrogen": 0.12,
-        "organic_carbon": 1.5,
-        "olsen_phosphorus": 18.0,
-        "exchangeable_potassium": 0.32,
-    }
-    if not REAL_DATA_PATH.exists():
-        return benchmarks
-
-    series: dict[str, list[float]] = {
-        "soil_ph": [],
-        "total_nitrogen": [],
-        "organic_carbon": [],
-        "olsen_phosphorus": [],
-        "exchangeable_potassium": [],
-    }
-
-    with REAL_DATA_PATH.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            for metric_name, csv_name in {
-                "soil_ph": "soil_pH",
-                "total_nitrogen": "total_Nitrogen_percent_",
-                "organic_carbon": "total_Org_Carbon_percent_",
-                "olsen_phosphorus": "phosphorus_Olsen_ppm",
-                "exchangeable_potassium": "potassium_meq_percent_",
-            }.items():
-                value = _safe_float(row.get(csv_name))
-                if value is not None:
-                    series[metric_name].append(value)
-
-    for metric_name, values in series.items():
-        if values:
-            values.sort()
-            midpoint = len(values) // 2
-            lower_quartile = values[max(0, midpoint // 2)]
-            benchmarks[metric_name] = max(lower_quartile, benchmarks[metric_name])
-
-    return benchmarks
-
-
-def _measurement_map(reading: SoilReading) -> dict[str, float | None]:
-    values: dict[str, float | None] = {}
-    for measurement in reading.measurements:
-        values[measurement.analyte] = measurement.value
-    return values
-
-
 def generate_demo_recommendations(reading: SoilReading) -> list[SoilRecommendation]:
     """Backward-compatible prototype generator for demo endpoints."""
     metrics = _measurement_map(reading)
-    benchmarks = _generate_real_data_benchmarks()
+    benchmarks = _demo_benchmark_values()
     recommendations: list[SoilRecommendation] = []
     rules = [
         ("soil_ph", "pH management review", "The demo soil pH is below benchmark.", 0.5, "pH units", "Raise pH with liming."),
@@ -300,7 +261,6 @@ def generate_agronomic_assessment(
         critical_ph = profile["critical_ph"]
 
         if ph < critical_ph:
-            status = "severely_acidic"
             deficit = target_ph_min - ph
             # Liming formula: t/ha = deficit * buffer_factor (calibrated to soil texture & AEZ)
             lime_req_t_ha = round(min(5.0, deficit * aez["buffer_factor"]), 2)
@@ -344,7 +304,7 @@ def generate_agronomic_assessment(
                 "status": "moderately_acidic",
                 "interpretation": f"Soil pH {ph:.2f} is slightly below optimum. Mild nutrient lock-up possible.",
             })
-            ai_advisory.append(f"Maintain soil organic matter and avoid acidifying fertilizers like Ammonium Sulphate.")
+            ai_advisory.append("Maintain soil organic matter and avoid acidifying fertilizers like Ammonium Sulphate.")
         elif ph > target_ph_max:
             diagnoses.append({
                 "analyte": "soil_ph",
@@ -484,7 +444,7 @@ def generate_agronomic_assessment(
                 "bagUnit": "50kg manure bag",
             })
             ai_advisory.append(
-                f"Soil Health Recommendation: Incorporate crop residues instead of burning, and plant nitrogen-fixing green manure cover crops (e.g. Desmodium or Mucuna) to rebuild topsoil organic carbon."
+                "Soil Health Recommendation: Incorporate crop residues instead of burning, and plant nitrogen-fixing green manure cover crops (e.g. Desmodium or Mucuna) to rebuild topsoil organic carbon."
             )
 
     # -----------------------------------------------------------------------

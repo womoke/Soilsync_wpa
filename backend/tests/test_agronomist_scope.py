@@ -56,6 +56,9 @@ def test_agronomist_assessment_pool_requires_approved_assigned_county(
     assert "ap.approval_status = 'approved'" in cursor.query
     assert "a.county ilike ap.county" in cursor.query
     assert "(%s::text is null or a.county ilike %s)" in cursor.query
+    assert "sr.excluded_at is null" in cursor.query
+    assert "sr.source_provider in" in cursor.query
+    assert "valid_measurements.quality_status = 'valid'" in cursor.query
     assert cursor.params == ("agronomist-1", "Nakuru", "Nakuru")
 
 
@@ -75,6 +78,9 @@ def test_agronomist_claim_requires_approved_profile_in_assessment_county(
     assert "from agronomist_profiles as ap" in cursor.query
     assert "ap.approval_status = 'approved'" in cursor.query
     assert "a.county ilike ap.county" in cursor.query
+    assert "sr.excluded_at is null" in cursor.query
+    assert "sr.source_provider in" in cursor.query
+    assert "valid_measurements.quality_status = 'valid'" in cursor.query
     assert cursor.params == (
         "agronomist-1",
         "assessment-1",

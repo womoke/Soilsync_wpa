@@ -2,6 +2,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import AgrodealerAccount from './AgrodealerAccount'
 
+const { getClient } = vi.hoisted(() => ({ getClient: vi.fn().mockReturnValue(null) }))
+vi.mock('./lib/supabase', () => ({ getSupabaseClient: getClient }))
+
 const mockProfile = {
   id: 'dealer-prof-1',
   userId: 'dealer-user-1',

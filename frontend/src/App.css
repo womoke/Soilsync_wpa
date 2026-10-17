@@ -4687,3 +4687,27 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+:root[data-theme='dark'] .primary-button {
+  color: #ffffff;
+  background: #14532d;
+  border-color: var(--green-border);
+}
+
+:root[data-theme='dark'] .secondary-button {
+  color: var(--ink);
+  background: var(--surface-soft);
+  border-color: var(--green-border);
+}
+
+:root[data-theme='dark'] .role-card-button:hover,
+:root[data-theme='dark'] .workspace-mode-button.is-selected {
+  color: var(--ink);
+  background: #193a2a;
+  border-color: var(--green-border);
+}
+
+:root[data-theme='dark'] .workshop-mode-pill {
+  color: #081a11;
+  background: var(--green);
+}

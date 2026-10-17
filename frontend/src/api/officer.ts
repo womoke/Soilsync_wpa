@@ -81,7 +81,6 @@ export interface OfficerExportResponse {
   exportedAt: string
   records: Array<{
     readingId: string
-    farmerName: string
     farmName: string | null
     county: string | null
     subCounty: string | null
@@ -261,6 +260,8 @@ export interface OfficerFieldCollectionData {
   latitude: number
   longitude: number
   locationUncertaintyM?: number | null
+  locationStorageConsent: boolean
+  locationConsentNotes: string
   topCm?: number
   bottomCm?: number
   measurements: Array<{
@@ -296,6 +297,8 @@ export function recordOfficerFieldCollection(
         latitude: data.latitude,
         longitude: data.longitude,
         location_uncertainty_m: data.locationUncertaintyM,
+        location_storage_consent: data.locationStorageConsent,
+        location_consent_notes: data.locationConsentNotes,
         top_cm: data.topCm ?? 0,
         bottom_cm: data.bottomCm ?? 20,
         measurements: data.measurements.map((m) => ({
@@ -459,7 +462,6 @@ export function publishAssessment(
   accessToken: string,
   assessmentId: string,
   data?: {
-    licenseNumber?: string
     finalNotes?: string
   },
 ): Promise<{
@@ -476,7 +478,6 @@ export function publishAssessment(
     {
       method: 'POST',
       body: JSON.stringify({
-        license_number: data?.licenseNumber,
         final_notes: data?.finalNotes,
       }),
     },

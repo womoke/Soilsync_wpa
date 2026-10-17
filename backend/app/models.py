@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+OFFICER_LOCATION_STORAGE_CONSENT_WORDING_VERSION = "farmer-exact-location-storage-v1"
+
 
 def to_camel(value: str) -> str:
     first, *rest = value.split("_")
@@ -19,6 +21,7 @@ class ContractModel(BaseModel):
 
 
 SoilDataProvider = Literal[
+    "ISDA_SOIL",
     "PROJECT_SOIL_DATASET",
     "ISRIC_WOSIS",
     "ISRIC_SOILGRIDS",
@@ -32,6 +35,8 @@ SoilAnalyte = Literal[
     "organic_carbon",
     "olsen_phosphorus",
     "exchangeable_potassium",
+    "extractable_phosphorus",
+    "extractable_potassium",
 ]
 SoilMeasurementQuality = Literal[
     "valid",
@@ -64,6 +69,7 @@ class SoilSample(ContractModel):
 class SoilSource(ContractModel):
     provider: SoilDataProvider
     dataset_id: str | None
+    dataset_version: str | None = None
     record_id: str | None
     license: str | None
     attribution: str | None
@@ -71,7 +77,7 @@ class SoilSource(ContractModel):
 
 
 class MeasurementUncertainty(ContractModel):
-    interval_level: float
+    interval_level: float | None
     lower: float | None
     upper: float | None
 
@@ -83,11 +89,17 @@ class SoilMeasurement(ContractModel):
     canonical_unit: str | None
     analytical_method: str | None
     quality_status: SoilMeasurementQuality
+    source_value_text: str | None = None
+    depth_layer: str | None = None
+    depth_top_cm: float | None = None
+    depth_bottom_cm: float | None = None
+    transformations: list[str] = Field(default_factory=list)
+    normalization_error: str | None = None
     uncertainty: MeasurementUncertainty | None
 
 
 class SoilReading(ContractModel):
-    contract_version: Literal[1]
+    contract_version: Literal[1, 2]
     reading_id: str
     farm_id: str | None
     source: SoilSource
@@ -115,6 +127,13 @@ class SoilReadingPreviewMeasurement(ContractModel):
     canonical_unit: str | None = None
     analytical_method: str | None = None
     quality_status: SoilMeasurementQuality = "sample"
+    source_value_text: str | None = None
+    depth_layer: str | None = None
+    depth_top_cm: float | None = None
+    depth_bottom_cm: float | None = None
+    transformations: list[str] = Field(default_factory=list)
+    normalization_error: str | None = None
+    uncertainty: MeasurementUncertainty | None = None
 
 
 class SoilReadingPreviewRequest(ContractModel):
@@ -139,12 +158,29 @@ class OfficerFieldCollectionRequest(ContractModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     location_uncertainty_m: float | None = Field(default=None, ge=0)
+    location_storage_consent: bool
+    location_consent_notes: str = Field(min_length=1, max_length=500)
     sampled_at: datetime | None = None
     top_cm: float = Field(default=0, ge=0, le=500)
     bottom_cm: float = Field(default=20, ge=0, le=500)
     measurements: list["FarmerSoilMeasurementInput"] = Field(min_length=1)
     notes: str | None = Field(default=None, max_length=1000)
     mark_completed: bool = True
+
+    @model_validator(mode="after")
+    def validate_sample_depth(self) -> "OfficerFieldCollectionRequest":
+        if self.top_cm > self.bottom_cm:
+            raise ValueError("Sample top depth must not exceed bottom depth.")
+        if not self.location_storage_consent:
+            raise ValueError("Farmer consent is required before storing exact farm coordinates.")
+        if not self.location_consent_notes.strip():
+            raise ValueError("Consent notes must not be blank.")
+        return self
+
+    @field_validator("location_consent_notes")
+    @classmethod
+    def normalize_location_consent_notes(cls, value: str) -> str:
+        return value.strip()
 
 
 class FarmerSoilMeasurementInput(ContractModel):
@@ -157,6 +193,14 @@ class FarmerSoilMeasurementInput(ContractModel):
     analytical_method: str | None = Field(default=None, max_length=120)
     quality_status: SoilMeasurementQuality = "sample"
     source_quality_class: str | None = Field(default=None, max_length=120)
+
+    @field_validator("source_unit")
+    @classmethod
+    def normalize_source_unit(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Source unit cannot be blank.")
+        return normalized
 
     @model_validator(mode="after")
     def validate_quality_value(self) -> "FarmerSoilMeasurementInput":
@@ -650,7 +694,10 @@ class AssessmentEditRequest(ContractModel):
 
 
 class AssessmentPublishRequest(ContractModel):
-    license_number: str | None = None
+    license_number: str | None = Field(
+        default=None,
+        description="Deprecated input; published reports use the approved agronomist profile licence.",
+    )
     final_notes: str | None = None
 
 

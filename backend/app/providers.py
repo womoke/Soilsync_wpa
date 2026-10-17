@@ -238,7 +238,7 @@ def get_provider_status_summary(mode: ProviderMode = "DEMO_ONLY") -> ProviderSta
                 name="PROJECT_SOIL_DATASET",
                 status="not_connected",
                 ready=False,
-                note="Prototype use is assumed by the project owner; demo recommendations use local aggregate benchmarks, while provider ingestion remains disconnected pending quality and agronomic review.",
+                note="Rights are unconfirmed. Do not ingest or use this source; the production retirement migration is pending.",
             ),
             ProviderStatusRecord(
                 name="ISRIC_WOSIS",

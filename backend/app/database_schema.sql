@@ -48,22 +48,6 @@ CREATE TABLE IF NOT EXISTS source_datasets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO source_datasets (
-    dataset_key,
-    display_name,
-    provider_name,
-    source_file_name,
-    prototype_use_basis
-)
-VALUES (
-    'PROJECT_SOIL_DATASET',
-    'Project-provided soil dataset',
-    'PROJECT_SOIL_DATASET',
-    'soil_data_all.csv',
-    'Prototype use assumed by project owner; production restrictions are not represented here.'
-)
-ON CONFLICT (dataset_key) DO NOTHING;
-
 CREATE TABLE IF NOT EXISTS source_import_batches (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dataset_id UUID NOT NULL REFERENCES source_datasets(id) ON DELETE RESTRICT,
@@ -97,10 +81,14 @@ CREATE TABLE IF NOT EXISTS soil_readings (
     longitude DOUBLE PRECISION,
     source_provider TEXT,
     source_dataset_id TEXT,
+    source_dataset_version TEXT,
     source_record_id TEXT,
     source_license TEXT,
     source_attribution TEXT,
     source_retrieved_at TIMESTAMPTZ,
+    source_reading_id UUID REFERENCES soil_readings(id) ON DELETE CASCADE,
+    excluded_reason TEXT,
+    excluded_at TIMESTAMPTZ,
     dataset_id UUID REFERENCES source_datasets(id) ON DELETE RESTRICT,
     import_batch_id UUID REFERENCES source_import_batches(id) ON DELETE SET NULL,
     provenance_id UUID,
@@ -191,14 +179,56 @@ CREATE TABLE IF NOT EXISTS soil_measurements (
             )
         ),
     source_quality_class TEXT,
+    uncertainty_lower NUMERIC(18, 8),
+    uncertainty_upper NUMERIC(18, 8),
+    interval_level NUMERIC(8, 5),
+    depth_layer TEXT,
+    depth_top_cm DOUBLE PRECISION,
+    depth_bottom_cm DOUBLE PRECISION,
+    transformations JSONB NOT NULL DEFAULT '[]'::JSONB,
+    normalization_error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (soil_reading_id, source_analyte),
     CHECK (quality_status <> 'valid' OR value IS NOT NULL),
     CHECK (
         quality_status <> 'invalid_source_value'
         OR (value IS NULL AND source_value_text IS NOT NULL)
-    )
+    ),
+    CONSTRAINT soil_measurements_uncertainty_range CHECK (
+        uncertainty_lower IS NULL
+        OR uncertainty_upper IS NULL
+        OR uncertainty_lower <= uncertainty_upper
+    ),
+    CONSTRAINT soil_measurements_depth_range
+        CHECK (depth_top_cm IS NULL OR depth_bottom_cm IS NULL OR depth_top_cm <= depth_bottom_cm),
+    CONSTRAINT soil_measurements_transformations_array
+        CHECK (jsonb_typeof(transformations) = 'array')
 );
+
+CREATE TABLE IF NOT EXISTS soil_estimate_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reading_id UUID NOT NULL REFERENCES soil_readings(id) ON DELETE CASCADE,
+    consent_record_id UUID,
+    estimate_reading_id UUID UNIQUE REFERENCES soil_readings(id) ON DELETE SET NULL,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'ok', 'failed')),
+    http_status INTEGER CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),
+    rounded_latitude DOUBLE PRECISION,
+    rounded_longitude DOUBLE PRECISION,
+    layers_requested JSONB NOT NULL DEFAULT '[]'::JSONB,
+    error_text TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (rounded_latitude IS NULL OR rounded_latitude BETWEEN -90 AND 90),
+    CHECK (rounded_longitude IS NULL OR rounded_longitude BETWEEN -180 AND 180),
+    CHECK ((rounded_latitude IS NULL) = (rounded_longitude IS NULL)),
+    CHECK (jsonb_typeof(layers_requested) = 'array')
+);
+
+CREATE INDEX IF NOT EXISTS idx_soil_estimate_requests_reading_requested
+    ON soil_estimate_requests(reading_id, requested_at DESC);
+
+ALTER TABLE soil_estimate_requests ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS recommendations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -346,6 +376,9 @@ CREATE INDEX IF NOT EXISTS idx_farms_owner_id ON farms(owner_id);
 CREATE INDEX IF NOT EXISTS idx_farms_county ON farms(county);
 CREATE INDEX IF NOT EXISTS idx_soil_readings_farm_id ON soil_readings(farm_id);
 CREATE INDEX IF NOT EXISTS idx_soil_readings_sampled_at ON soil_readings(sampled_at);
+CREATE INDEX IF NOT EXISTS idx_soil_readings_source_reading_id
+    ON soil_readings(source_reading_id)
+    WHERE source_reading_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_source_import_batches_dataset_started
     ON source_import_batches(dataset_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_soil_readings_dataset_record
@@ -538,6 +571,66 @@ CREATE TABLE IF NOT EXISTS officer_visits (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS officer_location_consent_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    farm_id UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    visit_id UUID NOT NULL REFERENCES officer_visits(id) ON DELETE CASCADE,
+    farmer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    officer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    consent_scopes TEXT[] NOT NULL,
+    wording_version TEXT NOT NULL,
+    consent_notes TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (
+        CARDINALITY(consent_scopes) > 0
+        AND consent_scopes <@ ARRAY[
+            'store_exact_coordinates',
+            'send_coordinates_to_third_party_soil_service'
+        ]::TEXT[]
+    ),
+    CHECK (length(btrim(wording_version)) > 0),
+    CHECK (length(btrim(consent_notes)) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_officer_location_consent_visit_recorded
+    ON officer_location_consent_records(visit_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_officer_location_consent_farm_recorded
+    ON officer_location_consent_records(farm_id, recorded_at DESC);
+
+ALTER TABLE officer_location_consent_records ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE soil_estimate_requests
+    ADD CONSTRAINT soil_estimate_requests_consent_record_fk
+        FOREIGN KEY (consent_record_id)
+        REFERENCES officer_location_consent_records(id) ON DELETE RESTRICT;
+
+CREATE TABLE IF NOT EXISTS farm_location_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    farm_id UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    visit_id UUID NOT NULL REFERENCES officer_visits(id) ON DELETE CASCADE,
+    changed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    previous_latitude DOUBLE PRECISION NOT NULL
+        CHECK (previous_latitude BETWEEN -90 AND 90),
+    previous_longitude DOUBLE PRECISION NOT NULL
+        CHECK (previous_longitude BETWEEN -180 AND 180),
+    replacement_latitude DOUBLE PRECISION NOT NULL
+        CHECK (replacement_latitude BETWEEN -90 AND 90),
+    replacement_longitude DOUBLE PRECISION NOT NULL
+        CHECK (replacement_longitude BETWEEN -180 AND 180),
+    replaced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (
+        previous_latitude IS DISTINCT FROM replacement_latitude
+        OR previous_longitude IS DISTINCT FROM replacement_longitude
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_farm_location_history_farm_replaced
+    ON farm_location_history(farm_id, replaced_at DESC);
+CREATE INDEX IF NOT EXISTS idx_farm_location_history_visit
+    ON farm_location_history(visit_id);
+
+ALTER TABLE farm_location_history ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE IF NOT EXISTS officer_alerts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     officer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -660,4 +753,3 @@ CREATE INDEX IF NOT EXISTS idx_assessments_reading_id ON agronomic_assessments(s
 CREATE INDEX IF NOT EXISTS idx_assessments_status_county ON agronomic_assessments(status, county);
 CREATE INDEX IF NOT EXISTS idx_assessments_claiming_agronomist ON agronomic_assessments(claiming_agronomist_id);
 CREATE INDEX IF NOT EXISTS idx_assessments_officer_user ON agronomic_assessments(officer_user_id);
-

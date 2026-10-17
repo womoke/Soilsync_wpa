@@ -4,6 +4,9 @@ import AgrodealerAccount from './AgrodealerAccount'
 import ExtensionOfficerAccount from './ExtensionOfficerAccount'
 import AdminAccount from './AdminAccount'
 
+const { getClient } = vi.hoisted(() => ({ getClient: vi.fn().mockReturnValue(null) }))
+vi.mock('./lib/supabase', () => ({ getSupabaseClient: getClient }))
+
 function mockFetchResponse(payload: unknown, status = 200) {
   return Promise.resolve({
     ok: status >= 200 && status < 300,

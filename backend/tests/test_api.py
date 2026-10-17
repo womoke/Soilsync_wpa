@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
@@ -606,6 +607,124 @@ def test_versioned_preview_endpoint_validates_request_payloads() -> None:
     assert "detail" in response.json()
 
 
+def test_officer_field_collection_validates_depth_and_new_soil_contract_literals() -> None:
+    from pydantic import ValidationError
+
+    from app.models import (
+        OfficerFieldCollectionRequest,
+        SoilReadingPreviewRequest,
+    )
+
+    with pytest.raises(ValidationError, match="Sample top depth"):
+        OfficerFieldCollectionRequest.model_validate(
+            {
+                "latitude": -1.0,
+                "longitude": 36.0,
+                "locationStorageConsent": True,
+                "locationConsentNotes": "Farmer agreed in person.",
+                "topCm": 25,
+                "bottomCm": 20,
+                "measurements": [{"analyte": "soil_ph", "value": 5.5, "sourceUnit": "pH"}],
+            }
+        )
+
+    reading = SoilReadingPreviewRequest.model_validate(
+        {
+            "readingId": "isda-contract",
+            "source": {
+                "provider": "ISDA_SOIL",
+                "datasetId": "isdasoil-v2",
+                "datasetVersion": "2",
+                "recordId": None,
+                "license": "CC-BY-4.0",
+                "attribution": "iSDAsoil",
+                "retrievedAt": None,
+            },
+            "measurements": [
+                {"analyte": "extractable_phosphorus", "value": 12, "sourceUnit": "mg/kg"},
+                {"analyte": "extractable_potassium", "value": 0.4, "sourceUnit": "mg/kg"},
+            ],
+        }
+    )
+    assert reading.source.dataset_version == "2"
+
+
+def test_officer_field_collection_requires_storage_consent_and_notes() -> None:
+    from pydantic import ValidationError
+
+    from app.models import OfficerFieldCollectionRequest
+
+    base_payload = {
+        "latitude": -1.0,
+        "longitude": 36.0,
+        "measurements": [{"analyte": "soil_ph", "value": 5.5, "sourceUnit": "pH"}],
+    }
+
+    with pytest.raises(ValidationError, match="locationStorageConsent"):
+        OfficerFieldCollectionRequest.model_validate(base_payload)
+    with pytest.raises(ValidationError, match="Farmer consent is required"):
+        OfficerFieldCollectionRequest.model_validate(
+            {
+                **base_payload,
+                "locationStorageConsent": False,
+                "locationConsentNotes": "Farmer declined.",
+            }
+        )
+    with pytest.raises(ValidationError, match="Consent notes must not be blank"):
+        OfficerFieldCollectionRequest.model_validate(
+            {
+                **base_payload,
+                "locationStorageConsent": True,
+                "locationConsentNotes": "   ",
+            }
+        )
+
+
+def test_preview_endpoint_requires_an_explicit_measured_provider() -> None:
+    response = client.post(
+        "/api/v1/soil-readings/preview",
+        json={
+            "readingId": "preview-without-provider",
+            "measurements": [{"analyte": "soil_ph", "value": 6.2}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "provider is required" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "provider",
+    ["PROJECT_SOIL_DATASET", "ISRIC_WOSIS", "ISRIC_SOILGRIDS", "DEMO"],
+)
+def test_preview_endpoint_rejects_retired_soil_providers(provider: str) -> None:
+    response = client.post(
+        "/api/v1/soil-readings/preview",
+        json={
+            "readingId": "preview-retired-provider",
+            "source": {
+                "provider": provider,
+                "datasetId": "retired-dataset",
+                "recordId": "retired-record",
+                "license": None,
+                "attribution": None,
+                "retrievedAt": None,
+            },
+            "measurements": [{"analyte": "soil_ph", "value": 6.2}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "retired" in response.json()["detail"].lower()
+
+
+def test_retired_dataset_import_is_disabled() -> None:
+    from app.dataset_loader import import_csv
+
+    with pytest.raises(RuntimeError, match="source is retired"):
+        import_csv(Path("unused.csv"), "postgresql://unused")
+
+
 def test_demo_reading_is_loaded_from_database_repository(monkeypatch) -> None:
     import app.main as main_module
     from app.models import SoilReading
@@ -758,16 +877,16 @@ def test_role_query_dashboard_is_explicitly_demo_only() -> None:
     assert demo_response.status_code in {200, 503}
 
 
-def test_project_dataset_reference_benchmarks_are_cached() -> None:
-    from app.recommendations import _generate_real_data_benchmarks
+def test_demo_benchmarks_do_not_depend_on_the_unapproved_dataset() -> None:
+    from app.recommendations import _demo_benchmark_values
 
-    _generate_real_data_benchmarks.cache_clear()
-    first_result = _generate_real_data_benchmarks()
-    second_result = _generate_real_data_benchmarks()
-
-    assert second_result == first_result
-    assert _generate_real_data_benchmarks.cache_info().hits == 1
-    _generate_real_data_benchmarks.cache_clear()
+    assert _demo_benchmark_values() == {
+        "soil_ph": 6.2,
+        "total_nitrogen": 0.12,
+        "organic_carbon": 1.5,
+        "olsen_phosphorus": 18.0,
+        "exchangeable_potassium": 0.32,
+    }
 
 
 def test_provider_status_is_exposed_without_claiming_real_data_access() -> None:
@@ -1808,10 +1927,13 @@ def test_farmer_repository_sql_scopes_records_to_owner(monkeypatch) -> None:
     assert "where farms.id = %s and farms.owner_id = %s" in normalized_calls[5][0]
     assert normalized_calls[5][1][-2:] == (farm_id, user_id)
     assert "owned_farms.owner_id = %s" in normalized_calls[6][0]
+    assert "recommendations.review_status = 'approved'" in normalized_calls[6][0]
     assert normalized_calls[6][1] == (user_id, user_id, user_id, farm_id)
     assert "owned_farms.owner_id = %s" in normalized_calls[7][0]
+    assert "recommendations.review_status = 'approved'" in normalized_calls[7][0]
     assert normalized_calls[7][1] == (user_id, "viewed", recommendation_id, user_id, user_id, user_id)
-    assert "where user_id = %s and recommendation_id = %s" in normalized_calls[8][0]
+    assert "recommendations.review_status = 'approved'" in normalized_calls[8][0]
+    assert "join recommendations on recommendations.id = feedback.recommendation_id" in normalized_calls[8][0]
     assert normalized_calls[8][1] == (user_id, recommendation_id)
 
 
@@ -1889,6 +2011,7 @@ def test_publishing_applies_saved_assessment_adjustments(monkeypatch) -> None:
         "officer_name": "Field Officer",
         "engine_baseline": {
             "crop": "maize",
+            "farmAcreage": 2.0,
             "diagnoses": [{
                 "analyte": "soil_ph",
                 "interpretation": "Original diagnosis.",
@@ -1898,7 +2021,19 @@ def test_publishing_applies_saved_assessment_adjustments(monkeypatch) -> None:
                 "productType": "Agricultural Lime",
                 "ratePerHa": "2 t/ha",
                 "ratePerAcre": "0.8 t/acre",
+                "totalFarmPrescription": "1.62 tonnes (32 x 50kg bags)",
                 "applicationTiming": "Before planting",
+            }],
+            "commercialInputs": [{
+                "category": "Soil Amendment",
+                "commercialFormulation": "Agricultural Lime",
+                "totalBagsNeeded": 32,
+                "bagUnit": "50kg bag",
+            }],
+            "splitSchedule": [{
+                "stage": "Pre-Planting (4 weeks prior)",
+                "action": "Broadcast 32 bags of Agricultural Lime across 2 acres and plough in.",
+                "notes": "Apply before planting.",
             }],
         },
         "officer_edits": [],
@@ -1918,8 +2053,86 @@ def test_publishing_applies_saved_assessment_adjustments(monkeypatch) -> None:
                 },
             ],
         }],
+        "agronomist_licence_number": "TEST-1",
         "farm_name": "Green Farm",
         "farmer_id": "farmer-1",
+    }
+
+    class PublishCursor:
+        def __init__(self) -> None:
+            self.current_row = None
+            self.commands: list[str] = []
+            self.parameters: list[tuple | None] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, query, parameters=None):
+            self.commands.append(query.strip().lower())
+            self.parameters.append(parameters)
+            if query.lstrip().lower().startswith("select"):
+                self.current_row = row
+
+        def fetchone(self):
+            result = self.current_row
+            self.current_row = None
+            return result
+
+    class PublishConnection:
+        def __init__(self, cursor):
+            self.test_cursor = cursor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return self.test_cursor
+
+    cursor = PublishCursor()
+    monkeypatch.setattr(database, "_connect", lambda: PublishConnection(cursor))
+    result = database.publish_verified_assessment(
+        "agronomist-1",
+        "Review Agronomist",
+        "assessment-1",
+    )
+
+    assert result is not None
+    report = result["verifiedReport"]
+    assert report["publishedBy"]["licenseNumber"] == "TEST-1"
+    assert "KALRO" not in report["certification"]
+    assert "TEST-1" in report["certification"]
+    assert report["diagnoses"][0]["interpretation"] == "Revised diagnosis."
+    assert report["prescriptions"][0]["ratePerHa"] == "1.5 t/ha"
+    assert report["prescriptions"][0]["ratePerAcre"] == "0.61 t/acre (12.1 bags/acre)"
+    assert report["prescriptions"][0]["totalFarmPrescription"] == (
+        "1.21 tonnes (24 x 50kg bag)"
+    )
+    assert report["commercialInputs"][0]["totalBagsNeeded"] == 24
+    assert "Broadcast 24 bags" in report["splitSchedule"][0]["action"]
+    assert report["officerName"] == "Field Officer"
+    assert report["sampledAt"] == "2026-10-01T00:00:00+00:00"
+    recommendation_update = cursor.parameters[3]
+    assert recommendation_update[3] == 1.5
+    assert recommendation_update[4] == "t/ha"
+    assert "1.21 tonnes (24 x 50kg bag)" in recommendation_update[2]
+    assert "Published prescriptions: Agricultural Lime: 1.21 tonnes" in cursor.parameters[-1][2]
+    assert "set review_status = 'pending_review'" in cursor.commands[2]
+    assert "where not exists" in cursor.commands[4]
+
+
+def test_publish_verified_assessment_requires_approved_profile_licence(monkeypatch) -> None:
+    import pytest
+
+    from app import database
+
+    row = {
+        "agronomist_licence_number": "   ",
     }
 
     class PublishCursor:
@@ -1958,19 +2171,44 @@ def test_publishing_applies_saved_assessment_adjustments(monkeypatch) -> None:
 
     cursor = PublishCursor()
     monkeypatch.setattr(database, "_connect", lambda: PublishConnection(cursor))
-    result = database.publish_verified_assessment(
-        "agronomist-1",
-        "Review Agronomist",
-        "assessment-1",
-        license_number="TEST-1",
+
+    with pytest.raises(ValueError, match="approved agronomist profile must include a licence"):
+        database.publish_verified_assessment(
+            "agronomist-1",
+            "Review Agronomist",
+            "assessment-1",
+        )
+
+    assert "join agronomist_profiles as ap" in cursor.commands[0]
+    assert "ap.approval_status = 'approved'" in cursor.commands[0]
+    assert not any(command.startswith("update agronomic_assessments") for command in cursor.commands)
+
+
+def test_publish_endpoint_reports_missing_profile_licence(monkeypatch) -> None:
+    from app import main
+
+    test_client = TestClient(main.app)
+    monkeypatch.setattr(main, "require_agronomist_session", lambda _request: "agronomist-1")
+    monkeypatch.setattr(
+        main,
+        "require_officer_or_agronomist_session",
+        lambda _request: ("agronomist-1", "agronomist", "Review Agronomist"),
     )
 
-    assert result is not None
-    report = result["verifiedReport"]
-    assert report["diagnoses"][0]["interpretation"] == "Revised diagnosis."
-    assert report["prescriptions"][0]["ratePerHa"] == "1.5 t/ha"
-    assert report["officerName"] == "Field Officer"
-    assert report["sampledAt"] == "2026-10-01T00:00:00+00:00"
+    def publish_without_profile_licence(**_kwargs):
+        raise ValueError(
+            "Your approved agronomist profile must include a licence number before publishing."
+        )
+
+    monkeypatch.setattr(main, "publish_verified_assessment", publish_without_profile_licence)
+    response = test_client.post(
+        "/api/v1/assessments/assessment-1/publish",
+        headers={"Authorization": "******"},
+        json={},
+    )
+
+    assert response.status_code == 409
+    assert "licence number" in response.json()["detail"]
 
 
 def test_farmer_verified_report_includes_persisted_metadata(monkeypatch) -> None:
@@ -2044,6 +2282,7 @@ def test_farmer_repository_persists_measurements_and_feedback(monkeypatch) -> No
         "longitude": None,
         "source_provider": "FARMER_OBSERVATION",
         "source_dataset_id": None,
+        "source_dataset_version": None,
         "source_record_id": None,
         "source_license": None,
         "source_attribution": "Submitted by the authenticated farmer",
@@ -2099,7 +2338,8 @@ def test_farmer_repository_persists_measurements_and_feedback(monkeypatch) -> No
             "bottomCm": 20,
             "measurements": [
                 {"analyte": "soil_ph", "value": 5.4, "sourceUnit": "pH", "qualityStatus": "valid"},
-                {"analyte": "total_nitrogen", "value": None, "sourceValueText": "trace",
+                {"analyte": "total_nitrogen", "value": 12, "sourceUnit": "g/kg", "qualityStatus": "valid"},
+                {"analyte": "extractable_phosphorus", "value": None, "sourceValueText": "trace",
                  "sourceUnit": "%", "qualityStatus": "invalid_source_value"},
             ],
         }
@@ -2114,17 +2354,26 @@ def test_farmer_repository_persists_measurements_and_feedback(monkeypatch) -> No
     assert reading.reading_id == "reading-000001"
     assert [measurement.quality_status for measurement in reading.measurements] == [
         "valid",
+        "valid",
         "invalid_source_value",
     ]
-    assert [call[0].strip().lower().split("(")[0].strip() for call in write_cursor.calls].count("insert into soil_measurements") == 2
+    assert [call[0].strip().lower().split("(")[0].strip() for call in write_cursor.calls].count("insert into soil_measurements") == 3
     invalid_measurement_call = next(
+        params
+        for query, params in write_cursor.calls
+        if query.strip().lower().startswith("insert into soil_measurements")
+        and params
+        and params[2] == "extractable_phosphorus"
+    )
+    assert invalid_measurement_call[4] == "trace"
+    converted_measurement_call = next(
         params
         for query, params in write_cursor.calls
         if query.strip().lower().startswith("insert into soil_measurements")
         and params
         and params[2] == "total_nitrogen"
     )
-    assert invalid_measurement_call[4] == "trace"
+    assert converted_measurement_call[3:8] == (1.2, "12.0", "g/kg", "%", None)
     assert feedback == {
         "feedbackId": "feedback-000001",
         "recommendationId": "recommendation-000001",
@@ -3301,7 +3550,11 @@ def test_officer_field_collection_workflow(monkeypatch) -> None:
         sampled_at,
         notes,
         mark_completed,
+        location_storage_consent,
+        location_consent_notes,
     ):
+        assert location_storage_consent is True
+        assert location_consent_notes == "Farmer agreed in person."
         if visit_id == "visit-claimed-1":
             return {
                 "visitId": visit_id,
@@ -3321,6 +3574,8 @@ def test_officer_field_collection_workflow(monkeypatch) -> None:
         "latitude": -0.4215,
         "longitude": 36.9512,
         "location_uncertainty_m": 4.5,
+        "location_storage_consent": True,
+        "location_consent_notes": "Farmer agreed in person.",
         "top_cm": 0,
         "bottom_cm": 20,
         "measurements": [
@@ -3353,6 +3608,15 @@ def test_officer_field_collection_workflow(monkeypatch) -> None:
     assert data["soilDataCollected"] is True
     assert data["status"] == "completed"
     assert data["latitude"] == -0.4215
+
+    missing_consent = dict(payload)
+    missing_consent.pop("location_storage_consent")
+    rejected = test_client.post(
+        "/api/v1/officer/visits/visit-claimed-1/field-collection",
+        headers={"Authorization": "******"},
+        json=missing_consent,
+    )
+    assert rejected.status_code == 422
 
     # 2. Denied on unowned or unapproved visit -> 403
     denied = test_client.post(
@@ -3418,42 +3682,213 @@ def test_record_field_collection_parses_measurements_and_rates(monkeypatch) -> N
 
     mock_cursor = MockCursor()
     monkeypatch.setattr(database, "_connect", lambda: MockConnection(mock_cursor))
-    monkeypatch.setattr(
-        database,
-        "generate_agronomic_assessment",
-        lambda **_: {
+    generated_assessment: dict[str, Any] = {}
+
+    def generate_assessment(**kwargs: Any) -> dict[str, Any]:
+        generated_assessment.update(kwargs)
+        return {
             "engineVersion": "test-rules",
             "prescriptions": [{"ratePerHa": "1.8 t/ha"}],
-        },
-    )
+        }
+
+    monkeypatch.setattr(database, "generate_agronomic_assessment", generate_assessment)
 
     result = database.record_officer_field_collection(
         officer_user_id="officer-1",
         visit_id="visit-1",
         latitude=-0.4,
         longitude=36.9,
+        location_storage_consent=True,
+        location_consent_notes="Farmer agreed in person.",
         measurements=[
             {
                 "analyte": "soil_ph",
                 "source_analyte": "soil_ph",
                 "value": "5.8",
                 "source_unit": "pH",
+                "quality_status": "valid",
+            },
+            {
+                "analyte": "total_nitrogen",
+                "source_analyte": "total_nitrogen",
+                "value": "12",
+                "source_unit": "g/kg",
+                "quality_status": "valid",
             }
         ],
     )
 
     assert result is not None
     assert result["readingId"] == "reading-1"
+    consent_call_index, consent_call = next(
+        (index, call)
+        for index, call in enumerate(mock_cursor.calls)
+        if call[0].startswith("insert into officer_location_consent_records")
+    )
+    coordinate_update_index = next(
+        index
+        for index, call in enumerate(mock_cursor.calls)
+        if call[0].startswith("update farms")
+    )
+    location_history_index, location_history_call = next(
+        (index, call)
+        for index, call in enumerate(mock_cursor.calls)
+        if call[0].startswith("insert into farm_location_history")
+    )
+    assert consent_call_index < location_history_index < coordinate_update_index
+    assert consent_call[1] is not None
+    assert consent_call[1][4] == "farmer-exact-location-storage-v1"
+    assert consent_call[1][5] == "Farmer agreed in person."
+    assert "store_exact_coordinates" in consent_call[0]
+    assert "send_coordinates_to_third_party_soil_service" not in consent_call[0]
+    assert "latitude is distinct from %s" in location_history_call[0]
+    assert "longitude is distinct from %s" in location_history_call[0]
+    assert location_history_call[1] == (
+        "visit-1",
+        "officer-1",
+        -0.4,
+        36.9,
+        "farm-1",
+        -0.4,
+        36.9,
+    )
     measurement_params = next(
         params for query, params in mock_cursor.calls if query.startswith("insert into soil_measurements")
     )
     assert measurement_params is not None
     assert measurement_params[3] == 5.8
+    nitrogen_params = next(
+        params
+        for query, params in mock_cursor.calls
+        if query.startswith("insert into soil_measurements") and params and params[2] == "total_nitrogen"
+    )
+    assert nitrogen_params is not None
+    assert nitrogen_params[3] == 1.2
+    assert nitrogen_params[5:9] == ("g/kg", "%", None, "valid")
+    assert json.loads(nitrogen_params[10]) == ["unit_conversion:g/kg->%"]
+    assert nitrogen_params[11] is None
+    assert generated_assessment["soil_values"] == {
+        "soil_ph": 5.8,
+        "total_nitrogen": 1.2,
+    }
     recommendation_params = next(
         params for query, params in mock_cursor.calls if query.startswith("insert into recommendations")
     )
     assert recommendation_params is not None
     assert recommendation_params[6:8] == (1.8, "t/ha")
+
+
+def test_farm_location_history_migration_is_restricted_and_auditable() -> None:
+    from pathlib import Path
+
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "database"
+        / "migrations"
+        / "036_farm_location_history.sql"
+    )
+    migration = migration_path.read_text(encoding="utf-8").lower()
+    snapshot_path = Path(__file__).resolve().parents[1] / "app" / "database_schema.sql"
+    snapshot = snapshot_path.read_text(encoding="utf-8").lower()
+
+    for column in (
+        "previous_latitude",
+        "previous_longitude",
+        "replacement_latitude",
+        "replacement_longitude",
+        "visit_id",
+        "changed_by",
+        "replaced_at",
+    ):
+        assert column in migration
+        assert column in snapshot
+    assert "alter table public.farm_location_history enable row level security" in migration
+    assert "latitude is distinct from replacement_latitude" in migration
+
+
+def test_record_field_collection_rejects_missing_consent_before_database_access(monkeypatch) -> None:
+    import pytest
+
+    from app import database
+
+    monkeypatch.setattr(
+        database,
+        "_connect",
+        lambda: pytest.fail("Consent validation must run before opening the database."),
+    )
+
+    with pytest.raises(ValueError, match="Farmer consent is required"):
+        database.record_officer_field_collection(
+            officer_user_id="officer-1",
+            visit_id="visit-1",
+            latitude=-0.4,
+            longitude=36.9,
+            measurements=[],
+        )
+
+
+def test_record_field_collection_rejects_missing_farm_county(monkeypatch) -> None:
+    import pytest
+
+    from app import database
+
+    class CountyCursor:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, query, _params=None):
+            self.calls.append(" ".join(query.lower().split()))
+
+        def fetchone(self):
+            return {
+                "id": "visit-1",
+                "farm_id": "farm-1",
+                "farmer_id": "farmer-1",
+                "status": "claimed",
+                "farm_name": "North plot",
+                "farmer_name": "Amina",
+                "county": None,
+                "sub_county": None,
+                "ward": None,
+                "size_acres": 2.0,
+                "crops": "maize",
+            }
+
+    class CountyConnection:
+        def __init__(self, cursor):
+            self.test_cursor = cursor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return self.test_cursor
+
+    cursor = CountyCursor()
+    monkeypatch.setattr(database, "_connect", lambda: CountyConnection(cursor))
+
+    with pytest.raises(ValueError, match="Farm county must be set"):
+        database.record_officer_field_collection(
+            officer_user_id="officer-1",
+            visit_id="visit-1",
+            latitude=-0.4,
+            longitude=36.9,
+            location_storage_consent=True,
+            location_consent_notes="Farmer agreed in person.",
+            measurements=[{"analyte": "soil_ph", "value": 5.8, "source_unit": "pH"}],
+        )
+
+    assert len(cursor.calls) == 1
+    assert cursor.calls[0].startswith("select v.id")
 
 
 def test_officer_alerts_workflow_and_triage(monkeypatch) -> None:
@@ -3675,17 +4110,16 @@ def test_officer_report_export_gating_and_allowlist(monkeypatch) -> None:
                 "officerUserId": officer_user_id,
                 "scope": {"county": county, "subCounty": sub_county, "ward": ward},
                 "allowlistedFields": [
-                    "readingId", "farmerName", "farmName", "county", "subCounty", "ward",
+                    "readingId", "farmName", "county", "subCounty", "ward",
                     "sampleYear", "sampledAt", "topCm", "bottomCm", "sourceProvider",
                     "analyte", "value", "unit", "qualityStatus"
                 ],
-                "privacyDisclaimer": "Exported under reviewed extension services access policy. Phone numbers, national IDs, and exact coordinates are strictly excluded.",
+                "privacyDisclaimer": "Farmer names are excluded; exports require three distinct farmers.",
                 "recordCount": 1,
                 "exportedAt": datetime.now(UTC),
                 "records": [
                     {
                         "readingId": "read-001",
-                        "farmerName": "Wanjiku Farmer",
                         "farmName": "Rugi Green Farm",
                         "county": "Nyeri",
                         "subCounty": "Mukurweini",
@@ -3715,10 +4149,12 @@ def test_officer_report_export_gating_and_allowlist(monkeypatch) -> None:
     assert export_resp.status_code == 200
     export_data = export_resp.json()
     assert export_data["exportId"] == "exp-123456"
+    assert "farmerName" not in export_data["allowlistedFields"]
     assert "phone" not in export_data["allowlistedFields"]
     assert "latitude" not in export_data["allowlistedFields"]
     assert "longitude" not in export_data["allowlistedFields"]
     assert len(export_data["records"]) == 1
+    assert "farmerName" not in export_data["records"][0]
     assert export_data["records"][0]["analyte"] == "soil_ph"
 
     # 2. Out-of-jurisdiction export -> 403 Forbidden
@@ -5804,7 +6240,7 @@ def test_assessment_review_and_publication_workflow(monkeypatch) -> None:
     monkeypatch.setattr(
         main,
         "publish_verified_assessment",
-        lambda agronomist_user_id, agronomist_name, assessment_id, license_number, final_notes: {
+        lambda agronomist_user_id, agronomist_name, assessment_id, final_notes: {
             "assessmentId": assessment_id,
             "status": "verified",
             "reviewStage": "published",
@@ -5814,7 +6250,7 @@ def test_assessment_review_and_publication_workflow(monkeypatch) -> None:
     pub_res = test_client.post(
         "/api/v1/assessments/assess-1/publish",
         headers={"Authorization": "Bearer agronomist-token"},
-        json={"license_number": "KALRO/AGR-2026", "final_notes": "Prescription approved for farmer application."},
+        json={"final_notes": "Prescription approved for farmer application."},
     )
     assert pub_res.status_code == 200
     assert pub_res.json()["status"] == "verified"

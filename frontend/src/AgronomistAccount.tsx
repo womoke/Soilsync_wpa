@@ -14,7 +14,6 @@ import { useAuth } from './context/AuthContext'
 
 type ReviewDraft = {
   notes: string
-  licenseNumber: string
   finalNotes: string
   adjustments: Record<string, string>
 }
@@ -55,7 +54,6 @@ function getSavedFieldValue(
 
 const emptyDraft = (): ReviewDraft => ({
   notes: '',
-  licenseNumber: '',
   finalNotes: '',
   adjustments: {},
 })
@@ -218,14 +216,8 @@ export default function AgronomistAccount({ onBackToDemo }: { onBackToDemo: () =
       setError('Save your report changes before publishing the verified report.')
       return
     }
-    const licenseNumber = draft.licenseNumber.trim()
-    if (!licenseNumber) {
-      setError('Enter your licence or accreditation number before publishing.')
-      return
-    }
     await performAssessmentAction(assessment.assessmentId, (token, id) =>
       publishAssessment(token, id, {
-        licenseNumber,
         finalNotes: draft.finalNotes.trim() || undefined,
       }),
     )
@@ -288,7 +280,11 @@ export default function AgronomistAccount({ onBackToDemo }: { onBackToDemo: () =
               </div>
             ))}
           </div>
-          {lastRefreshed && <p className="timestamp-chip">Last refreshed: {new Date(lastRefreshed).toLocaleString()}</p>}
+          {lastRefreshed && (
+            <p className="timestamp-chip">
+              Last refreshed: {new Date(lastRefreshed).toLocaleString()}
+            </p>
+          )}
         </section>
       )}
 
@@ -544,20 +540,10 @@ export default function AgronomistAccount({ onBackToDemo }: { onBackToDemo: () =
                       className="assessment-review-form"
                       onSubmit={(event) => void handlePublish(event, assessment)}
                     >
-                      <label className="auth-field">
-                        <span>Licence / accreditation number</span>
-                        <input
-                          value={draft.licenseNumber}
-                          onChange={(event) =>
-                            updateDraft(
-                              assessment.assessmentId,
-                              'licenseNumber',
-                              event.target.value,
-                            )
-                          }
-                          required
-                        />
-                      </label>
+                      <p>
+                        The licence number on your approved agronomist profile will appear on the
+                        published report. If it is missing, publication will be blocked.
+                      </p>
                       <label className="auth-field">
                         <span>Final publication notes (optional)</span>
                         <textarea

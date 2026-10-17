@@ -155,6 +155,7 @@ from app.models import (
     UserProfileUpdateRequest,
 )
 from app.providers import get_provider_status_summary
+from app.soil.normalize import normalize_measurement
 from app.supabase_client import (
     InvalidSupabaseIdentityError,
     SupabaseIdentityUnavailableError,
@@ -960,9 +961,13 @@ def record_officer_field_collection_endpoint(
             sampled_at=payload.sampled_at,
             notes=payload.notes,
             mark_completed=payload.mark_completed,
+            location_storage_consent=payload.location_storage_consent,
+            location_consent_notes=payload.location_consent_notes,
         )
     except DatabaseUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     if result is None:
         raise HTTPException(
@@ -1060,11 +1065,12 @@ def publish_assessment_endpoint(
             agronomist_user_id=user_id,
             agronomist_name=agronomist_name,
             assessment_id=assessment_id,
-            license_number=payload.license_number,
             final_notes=payload.final_notes,
         )
     except DatabaseUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     if published is None:
         raise HTTPException(
@@ -1185,7 +1191,11 @@ def export_officer_data_report(
     if report is None:
         raise HTTPException(
             status_code=403,
-            detail="Requested scope is outside officer's active assigned jurisdiction or unverified.",
+            detail=(
+                "Requested scope is outside the officer's active assigned jurisdiction, "
+                "contains no eligible verified measurements, or has fewer than three "
+                "distinct farmers with valid field measurements."
+            ),
         )
     return report
 
@@ -2275,19 +2285,56 @@ def get_admin_audit_log(
 
 @app.post("/api/v1/soil-readings/preview", response_model=SoilReading)
 def preview_soil_reading(payload: SoilReadingPreviewRequest) -> SoilReading:
+    if payload.source is None:
+        raise HTTPException(
+            status_code=422,
+            detail="A measured soil data provider is required for new readings.",
+        )
+
+    retired_providers = {
+        "PROJECT_SOIL_DATASET",
+        "ISRIC_WOSIS",
+        "ISRIC_SOILGRIDS",
+        "DEMO",
+    }
+    if payload.source is not None and payload.source.provider in retired_providers:
+        raise HTTPException(
+            status_code=422,
+            detail="Retired and demo soil data providers cannot be used for new readings.",
+        )
+
+    preview_measurements = []
+    for item in payload.measurements:
+        normalized = normalize_measurement(
+            analyte=item.analyte,
+            value=item.value,
+            source_unit=item.source_unit,
+            quality_status=item.quality_status,
+            source_value_text=item.source_value_text,
+        )
+        preview_measurements.append(
+            {
+                "analyte": item.analyte,
+                "value": normalized.value,
+                "source_unit": normalized.source_unit,
+                "source_value_text": normalized.source_value_text,
+                "canonical_unit": normalized.canonical_unit,
+                "analytical_method": item.analytical_method,
+                "quality_status": normalized.quality_status,
+                "depth_layer": item.depth_layer,
+                "depth_top_cm": item.depth_top_cm,
+                "depth_bottom_cm": item.depth_bottom_cm,
+                "transformations": [*item.transformations, *normalized.transformations],
+                "normalization_error": normalized.normalization_error,
+                "uncertainty": item.uncertainty,
+            }
+        )
+
     return SoilReading(
-        contract_version=1,
+        contract_version=2,
         reading_id=payload.reading_id,
         farm_id=payload.farm_id,
-        source=payload.source
-        or {
-            "provider": "DEMO",
-            "dataset_id": "preview-request",
-            "record_id": payload.reading_id,
-            "license": None,
-            "attribution": "Preview generated from a validated client payload.",
-            "retrieved_at": None,
-        },
+        source=payload.source,
         sample=payload.sample
         or {
             "sampled_at": None,
@@ -2300,16 +2347,5 @@ def preview_soil_reading(payload: SoilReadingPreviewRequest) -> SoilReading:
             "longitude": None,
             "uncertainty_m": None,
         },
-        measurements=[
-            {
-                "analyte": item.analyte,
-                "value": item.value,
-                "source_unit": item.source_unit,
-                "canonical_unit": item.canonical_unit,
-                "analytical_method": item.analytical_method,
-                "quality_status": item.quality_status,
-                "uncertainty": None,
-            }
-            for item in payload.measurements
-        ],
+        measurements=preview_measurements,
     )

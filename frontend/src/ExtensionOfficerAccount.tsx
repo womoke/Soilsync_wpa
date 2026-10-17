@@ -537,6 +537,8 @@ export default function ExtensionOfficerAccount({
         latitude: lat,
         longitude: lng,
         locationUncertaintyM: accuracy,
+        locationStorageConsent: hasLocationConsent,
+        locationConsentNotes: locationConsentNotes.trim(),
         topCm: parseFloat(collectionTopCm) || 0,
         bottomCm: parseFloat(collectionBottomCm) || 20,
         measurements,
@@ -2349,10 +2351,20 @@ export default function ExtensionOfficerAccount({
                     onChange={(e) => setHasLocationConsent(e.target.checked)}
                   />
                   <span style={{ fontSize: '0.85rem' }}>
-                    I confirm the farmer has explicitly consented to recording exact GPS coordinates
-                    for this visit.
+                    I confirm the farmer explicitly consented to SoilSync storing this farm's exact
+                    GPS coordinates for this visit.
                   </span>
                 </label>
+                <p
+                  style={{
+                    margin: '0 0 0.65rem',
+                    fontSize: '0.8rem',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  This records consent for storage only. Sending coordinates to any external soil
+                  service requires separate consent and is not enabled.
+                </p>
 
                 <label className="auth-field" style={{ margin: 0, marginBottom: '0.5rem' }}>
                   <span style={{ fontSize: '0.8rem' }}>
@@ -2621,11 +2633,7 @@ export default function ExtensionOfficerAccount({
                 >
                   Cancel
                 </button>
-                <button
-                  className="primary-button"
-                  type="submit"
-                  disabled={isWorking || !hasLocationConsent || !locationConsentNotes.trim()}
-                >
+                <button className="primary-button" type="submit" disabled={isWorking}>
                   {isWorking ? 'Recording…' : 'Save & Mark Complete'}
                 </button>
               </div>
