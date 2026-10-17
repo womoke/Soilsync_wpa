@@ -82,7 +82,9 @@ coordinates. Save and review the output before proceeding.
 Migration `033_quarantine_retired_soil_readings.sql` adds exclusion metadata and
 quarantines legacy-provider and demo readings without deleting them. Validate it
 against staging and verify the inventory and downstream views before deploying
-application code that reads `excluded_at`.
+application code that reads `excluded_at`. The retained demo seed remains
+available only to the explicit demo-reading endpoint; operational queries still
+exclude it.
 
 Migration `034_soil_estimate_snapshots_and_measurement_quality.sql` adds the
 dataset-version snapshot, measurement uncertainty/depth/transformation metadata,

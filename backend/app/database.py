@@ -217,7 +217,6 @@ def load_demo_soil_reading() -> SoilReading:
                    reading.measurement_quality
             FROM soil_readings AS reading
             WHERE reading.reading_source = 'DEMO_SEED'
-              AND reading.excluded_at IS NULL
               AND reading.source_provider = 'DEMO'
             ORDER BY reading.sampled_at DESC NULLS LAST, reading.created_at DESC
             LIMIT 1
