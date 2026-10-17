@@ -435,7 +435,7 @@ export default function ExtensionOfficerAccount({
       if (token) {
         void getOfficerVisitPool(token)
           .then(setVisitPool)
-          .catch(() => {})
+          .catch(() => { })
       }
     } finally {
       setIsWorking(false)
@@ -555,7 +555,7 @@ export default function ExtensionOfficerAccount({
       if (token) {
         void getUnverifiedAssessments(token)
           .then(setAssessments)
-          .catch(() => {})
+          .catch(() => { })
       }
       setMessage(res.message || 'Field data and GPS coordinates recorded successfully.')
     } catch (err) {
@@ -636,20 +636,20 @@ export default function ExtensionOfficerAccount({
         prev.map((a) =>
           a.assessmentId === selectedAssessment.assessmentId
             ? {
-                ...a,
-                officerEdits: res.officerEdits as typeof a.officerEdits,
-                agronomistEdits: res.agronomistEdits as typeof a.agronomistEdits,
-              }
+              ...a,
+              officerEdits: res.officerEdits as typeof a.officerEdits,
+              agronomistEdits: res.agronomistEdits as typeof a.agronomistEdits,
+            }
             : a,
         ),
       )
       setSelectedAssessment((prev) =>
         prev
           ? {
-              ...prev,
-              officerEdits: res.officerEdits as typeof prev.officerEdits,
-              agronomistEdits: res.agronomistEdits as typeof prev.agronomistEdits,
-            }
+            ...prev,
+            officerEdits: res.officerEdits as typeof prev.officerEdits,
+            agronomistEdits: res.agronomistEdits as typeof prev.agronomistEdits,
+          }
           : null,
       )
       setAssessmentNotes('')
@@ -959,7 +959,7 @@ export default function ExtensionOfficerAccount({
             <Sparkles size={16} /> Agronomic Pipeline
           </div>
           <div className="score-placeholder role-score">{assessments.length}</div>
-          <p className="role-card-note">KALRO assessments awaiting verification</p>
+          <p className="role-card-note">Field assessments awaiting verification</p>
         </article>
       </section>
 
@@ -1808,7 +1808,7 @@ export default function ExtensionOfficerAccount({
           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
         >
           <div>
-            <div className="eyebrow">KALRO AGRONOMIC ENGINE & COLLABORATION</div>
+            <div className="eyebrow">SOILSYNC AI AGRONOMIC ENGINE & COLLABORATION</div>
             <h2>Agronomic Assessments Pipeline ({assessments.length})</h2>
             <p className="page-subtitle" style={{ margin: '0.25rem 0 0 0', fontSize: '0.875rem' }}>
               Deterministic nutrient response models awaiting collaborative extension notes and
@@ -1820,7 +1820,7 @@ export default function ExtensionOfficerAccount({
         {assessments.length === 0 ? (
           <p className="history-empty">
             No unverified assessments in your assigned jurisdiction. Field collections will
-            automatically generate KALRO assessments.
+            automatically generate field assessments.
           </p>
         ) : (
           <div
@@ -1873,9 +1873,8 @@ export default function ExtensionOfficerAccount({
                       Crop: {item.crop}
                     </span>
                     <span
-                      className={`sync-status-indicator ${
-                        item.reviewStage === 'claimed' ? 'is-synced' : 'is-draft'
-                      }`}
+                      className={`sync-status-indicator ${item.reviewStage === 'claimed' ? 'is-synced' : 'is-draft'
+                        }`}
                       style={{ fontSize: '0.75rem' }}
                     >
                       {item.reviewStage === 'claimed' ? 'Claimed by Agronomist' : 'Awaiting Review'}
@@ -2689,7 +2688,7 @@ export default function ExtensionOfficerAccount({
               }}
             >
               <div>
-                <div className="eyebrow">KALRO ASSESSMENT PRE-REVIEW</div>
+                <div className="eyebrow">FIELD SOIL ASSESSMENT PRE-REVIEW</div>
                 <h3
                   id="assessment-dialog-title"
                   style={{ margin: '0.2rem 0', fontSize: '1.25rem' }}
@@ -2791,7 +2790,7 @@ export default function ExtensionOfficerAccount({
                   color: 'var(--primary-color)',
                 }}
               >
-                2. Agronomic Prescriptions (KALRO Matrix Scaling)
+                2. Agronomic Prescriptions (Matrix Scaling)
               </h4>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
@@ -2991,8 +2990,8 @@ export default function ExtensionOfficerAccount({
                 Collaborative Review Thread
               </h4>
               {(!selectedAssessment.officerEdits || selectedAssessment.officerEdits.length === 0) &&
-              (!selectedAssessment.agronomistEdits ||
-                selectedAssessment.agronomistEdits.length === 0) ? (
+                (!selectedAssessment.agronomistEdits ||
+                  selectedAssessment.agronomistEdits.length === 0) ? (
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
                   No collaborative notes recorded yet. Add notes below to document field
                   adjustments.

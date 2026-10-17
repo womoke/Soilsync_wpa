@@ -719,18 +719,17 @@ export default function FarmerAccount({
                         : 'Ownership review pending'}
                     </span>
                     <span
-                      className={`account-review-state ${
-                        selectedFarm.soilDataCollected ||
+                      className={`account-review-state ${selectedFarm.soilDataCollected ||
                         (selectedFarm.latitude !== null && readings.length > 0)
-                          ? 'is-approved'
-                          : selectedFarm.hasVisitRequest
-                            ? 'is-pending'
-                            : 'is-incomplete'
-                      }`}
+                        ? 'is-approved'
+                        : selectedFarm.hasVisitRequest
+                          ? 'is-pending'
+                          : 'is-incomplete'
+                        }`}
                     >
                       <span className="status-dot" />
                       {selectedFarm.soilDataCollected ||
-                      (selectedFarm.latitude !== null && readings.length > 0)
+                        (selectedFarm.latitude !== null && readings.length > 0)
                         ? 'COLLECTION COMPLETE'
                         : selectedFarm.hasVisitRequest
                           ? `VISIT ${selectedFarm.visitStatus?.toUpperCase() || 'REQUESTED'}`
@@ -1065,15 +1064,15 @@ export default function FarmerAccount({
                           <strong>
                             {formatDate(
                               reading.sample.sampledAt ??
-                                (reading.sample.sampleYear
-                                  ? String(reading.sample.sampleYear)
-                                  : null),
+                              (reading.sample.sampleYear
+                                ? String(reading.sample.sampleYear)
+                                : null),
                             )}
                           </strong>
                           <span>
                             {reading.sample.depth.sourceLabel ??
                               (reading.sample.depth.topCm !== null &&
-                              reading.sample.depth.bottomCm !== null
+                                reading.sample.depth.bottomCm !== null
                                 ? `${reading.sample.depth.topCm}-${reading.sample.depth.bottomCm} cm`
                                 : 'Depth not supplied')}
                           </span>
@@ -1189,11 +1188,11 @@ export default function FarmerAccount({
                         <p className="draft-preview">
                           {draft.payload.measurements && Array.isArray(draft.payload.measurements)
                             ? draft.payload.measurements
-                                .map(
-                                  (m: { analyte: string; value: number; sourceUnit: string }) =>
-                                    `${m.analyte.replace('_', ' ')}: ${m.value} ${m.sourceUnit}`,
-                                )
-                                .join(' · ')
+                              .map(
+                                (m: { analyte: string; value: number; sourceUnit: string }) =>
+                                  `${m.analyte.replace('_', ' ')}: ${m.value} ${m.sourceUnit}`,
+                              )
+                              .join(' · ')
                             : 'Soil reading draft payload'}
                         </p>
                         <div className="draft-actions">
@@ -1254,7 +1253,7 @@ export default function FarmerAccount({
                   >
                     <div>
                       <div className="eyebrow" style={{ color: '#059669', fontWeight: 700 }}>
-                        OFFICIAL KALRO-CERTIFIED AGRONOMIC REPORT
+                        OFFICIAL CERTIFIED AGRONOMIC REPORT
                       </div>
                       <h2 style={{ margin: '0.25rem 0' }}>
                         Verified Soil Assessment for {verifiedReport.farmName}
