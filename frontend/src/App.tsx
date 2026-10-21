@@ -29,6 +29,7 @@ import { SoilSyncLoading } from './SoilSyncLoading'
 import { roleOptions, workflowByRole, type UserRole } from './mock/userRoles'
 import type { SoilAnalyte, SoilReading, SoilReadingValues, SoilRecommendation } from './types/soil'
 import './App.css'
+import './AgrodealerWorkspace.css'
 
 const FarmerAccount = lazy(() => import('./FarmerAccount'))
 const ExtensionOfficerAccount = lazy(() => import('./ExtensionOfficerAccount'))

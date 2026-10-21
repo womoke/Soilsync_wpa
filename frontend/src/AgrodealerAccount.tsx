@@ -471,11 +471,12 @@ export default function AgrodealerAccount({
 
   return (
     <div
-      className="farmer-account-page"
+      className="farmer-account-page dealer-workspace"
       style={{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}
     >
       {/* Header Bar */}
       <header
+        className="dealer-header"
         style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -489,6 +490,7 @@ export default function AgrodealerAccount({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div
+            className="dealer-brand-icon"
             style={{
               width: '44px',
               height: '44px',
@@ -506,6 +508,7 @@ export default function AgrodealerAccount({
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <h1 style={{ fontSize: '1.4rem', margin: 0, fontWeight: 700 }}>Agrodealer Portal</h1>
               <span
+                className="dealer-network-badge"
                 style={{
                   fontSize: '0.75rem',
                   padding: '2px 8px',
@@ -592,6 +595,7 @@ export default function AgrodealerAccount({
 
       {/* Core Privacy & Non-Endorsement Disclaimers */}
       <section
+        className="dealer-notice-grid"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
@@ -600,6 +604,7 @@ export default function AgrodealerAccount({
         }}
       >
         <div
+          className="dealer-notice-card"
           style={{
             padding: '1rem',
             background: '#f8fafc',
@@ -621,6 +626,7 @@ export default function AgrodealerAccount({
         </div>
 
         <div
+          className="dealer-notice-card"
           style={{
             padding: '1rem',
             background: '#f8fafc',
@@ -645,6 +651,7 @@ export default function AgrodealerAccount({
       {/* Session / Authentication Block */}
       {!effectiveToken && (
         <section
+          className="dealer-signin-card"
           style={{
             padding: '1.5rem',
             background: '#ffffff',
@@ -738,6 +745,7 @@ export default function AgrodealerAccount({
         <>
           {/* Profile Overview Card */}
           <div
+            className="dealer-profile-card"
             style={{
               background: '#ffffff',
               border: '1px solid #e2e8f0',
@@ -781,20 +789,29 @@ export default function AgrodealerAccount({
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '1rem', textAlign: 'center' }}>
-              <div style={{ padding: '0.5rem 1rem', background: '#f8fafc', borderRadius: '8px' }}>
+            <div
+              className="dealer-stat-grid"
+              style={{ display: 'flex', gap: '1rem', textAlign: 'center' }}
+            >
+              <div
+                className="dealer-stat"
+                style={{ padding: '0.5rem 1rem', background: '#f8fafc', borderRadius: '8px' }}
+              >
                 <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
                   {products.length}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Listed Products</div>
               </div>
-              <div style={{ padding: '0.5rem 1rem', background: '#ecfdf5', borderRadius: '8px' }}>
+              <div
+                className="dealer-stat"
+                style={{ padding: '0.5rem 1rem', background: '#ecfdf5', borderRadius: '8px' }}
+              >
                 <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#047857' }}>
                   {freshCount}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#047857' }}>Fresh Stock</div>
               </div>
-              <div
+              <div className="dealer-stat"
                 style={{
                   padding: '0.5rem 1rem',
                   background: 'var(--green-soft)',
@@ -808,7 +825,10 @@ export default function AgrodealerAccount({
                   Stale (&gt;7d)
                 </div>
               </div>
-              <div style={{ padding: '0.5rem 1rem', background: '#fef2f2', borderRadius: '8px' }}>
+              <div
+                className="dealer-stat"
+                style={{ padding: '0.5rem 1rem', background: '#fef2f2', borderRadius: '8px' }}
+              >
                 <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#b91c1c' }}>
                   {outOfStockCount}
                 </div>
@@ -819,6 +839,7 @@ export default function AgrodealerAccount({
 
           {/* Navigation Tabs */}
           <div
+            className="dealer-tabs"
             style={{
               display: 'flex',
               gap: '0.5rem',
@@ -827,6 +848,8 @@ export default function AgrodealerAccount({
             }}
           >
             <button
+              className={`dealer-tab${activeTab === 'inventory' ? ' is-active' : ''}`}
+              aria-current={activeTab === 'inventory' ? 'page' : undefined}
               onClick={() => setActiveTab('inventory')}
               style={{
                 padding: '0.6rem 1.2rem',
@@ -846,6 +869,8 @@ export default function AgrodealerAccount({
               Inventory & Freshness
             </button>
             <button
+              className={`dealer-tab${activeTab === 'location' ? ' is-active' : ''}`}
+              aria-current={activeTab === 'location' ? 'page' : undefined}
               onClick={() => setActiveTab('location')}
               style={{
                 padding: '0.6rem 1.2rem',
@@ -865,6 +890,8 @@ export default function AgrodealerAccount({
               Location & Consent
             </button>
             <button
+              className={`dealer-tab${activeTab === 'orders' ? ' is-active' : ''}`}
+              aria-current={activeTab === 'orders' ? 'page' : undefined}
               onClick={() => setActiveTab('orders')}
               style={{
                 padding: '0.6rem 1.2rem',
@@ -884,6 +911,8 @@ export default function AgrodealerAccount({
               Orders & Disputes ({orders.length})
             </button>
             <button
+              className={`dealer-tab${activeTab === 'proximity' ? ' is-active' : ''}`}
+              aria-current={activeTab === 'proximity' ? 'page' : undefined}
               onClick={() => setActiveTab('proximity')}
               style={{
                 padding: '0.6rem 1.2rem',
@@ -966,6 +995,7 @@ export default function AgrodealerAccount({
 
                     return (
                       <div
+                        className={`dealer-product-card${isStale ? ' is-stale' : ''}${isOutOfStock ? ' is-out-of-stock' : ''}`}
                         key={product.id}
                         style={{
                           background: '#ffffff',
@@ -1118,6 +1148,7 @@ export default function AgrodealerAccount({
           {/* TAB 2: LOCATION & CONSENT */}
           {activeTab === 'location' && (
             <div
+              className="dealer-tab-content dealer-location-grid"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
@@ -1125,6 +1156,7 @@ export default function AgrodealerAccount({
               }}
             >
               <div
+                className="dealer-panel-card"
                 style={{
                   background: '#ffffff',
                   border: '1px solid #e2e8f0',
@@ -1141,6 +1173,7 @@ export default function AgrodealerAccount({
                 </p>
 
                 <div
+                  className="dealer-location-status"
                   style={{
                     marginBottom: '1rem',
                     padding: '0.75rem',
@@ -1231,6 +1264,7 @@ export default function AgrodealerAccount({
               </div>
 
               <div
+                className="dealer-panel-card"
                 style={{
                   background: '#ffffff',
                   border: '1px solid #e2e8f0',
@@ -1244,6 +1278,7 @@ export default function AgrodealerAccount({
                 </p>
 
                 <div
+                  className="dealer-location-coordinates"
                   style={{
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
@@ -1369,6 +1404,7 @@ export default function AgrodealerAccount({
 
               {orders.length === 0 ? (
                 <div
+                  className="dealer-panel-card"
                   style={{
                     textAlign: 'center',
                     padding: '3rem',
@@ -1386,6 +1422,7 @@ export default function AgrodealerAccount({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {orders.map((order) => (
                     <div
+                      className="dealer-order-card"
                       key={order.id}
                       style={{
                         background: '#ffffff',
@@ -1705,6 +1742,7 @@ export default function AgrodealerAccount({
           {/* Quick Stock Edit Modal */}
           {stockEditingProductId && (
             <div
+              className="dealer-modal-backdrop"
               style={{
                 position: 'fixed',
                 top: 0,
@@ -1719,6 +1757,7 @@ export default function AgrodealerAccount({
               }}
             >
               <div
+                className="dealer-modal-card"
                 style={{
                   background: '#ffffff',
                   borderRadius: '10px',
@@ -1780,6 +1819,7 @@ export default function AgrodealerAccount({
           {/* Add Product Modal */}
           {showAddProductModal && (
             <div
+              className="dealer-modal-backdrop"
               style={{
                 position: 'fixed',
                 top: 0,
@@ -1794,6 +1834,7 @@ export default function AgrodealerAccount({
               }}
             >
               <div
+                className="dealer-modal-card"
                 style={{
                   background: '#ffffff',
                   borderRadius: '10px',
@@ -1989,6 +2030,7 @@ export default function AgrodealerAccount({
           {/* Cancellation / Dispute Modal */}
           {selectedOrder && orderActionType && (
             <div
+              className="dealer-modal-backdrop"
               style={{
                 position: 'fixed',
                 top: 0,
@@ -2003,6 +2045,7 @@ export default function AgrodealerAccount({
               }}
             >
               <div
+                className="dealer-modal-card"
                 style={{
                   background: '#ffffff',
                   borderRadius: '10px',

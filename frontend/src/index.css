@@ -149,20 +149,110 @@
   border-color: var(--line-strong) !important;
 }
 
+:root[data-theme='dark'] [style*='background: rgb(248, 250, 252)'],
+:root[data-theme='dark'] [style*='background: rgb(249, 250, 251)'],
+:root[data-theme='dark'] [style*='background: rgb(241, 245, 249)'],
+:root[data-theme='dark'] [style*='background: rgb(243, 244, 246)'],
+:root[data-theme='dark'] [style*='background: #f8fafc'],
+:root[data-theme='dark'] [style*='background: #f9fafb'],
+:root[data-theme='dark'] [style*='background: #f1f5f9'],
+:root[data-theme='dark'] [style*='background: #f3f4f6'],
+:root[data-theme='dark'] [style*='background-color: rgb(248, 250, 252)'],
+:root[data-theme='dark'] [style*='background-color: rgb(249, 250, 251)'],
+:root[data-theme='dark'] [style*='background-color: rgb(241, 245, 249)'],
+:root[data-theme='dark'] [style*='background-color: rgb(243, 244, 246)'],
+:root[data-theme='dark'] [style*='background-color: #f8fafc'],
+:root[data-theme='dark'] [style*='background-color: #f9fafb'],
+:root[data-theme='dark'] [style*='background-color: #f1f5f9'],
+:root[data-theme='dark'] [style*='background-color: #f3f4f6'] {
+  color: var(--ink) !important;
+  background: var(--surface-soft) !important;
+  border-color: var(--line) !important;
+}
+
+:root[data-theme='dark'] [style*='background: rgb(254, 242, 242)'],
+:root[data-theme='dark'] [style*='background: rgb(254, 226, 226)'],
+:root[data-theme='dark'] [style*='background: #fef2f2'],
+:root[data-theme='dark'] [style*='background: #fee2e2'],
+:root[data-theme='dark'] [style*='background-color: rgb(254, 242, 242)'],
+:root[data-theme='dark'] [style*='background-color: rgb(254, 226, 226)'],
+:root[data-theme='dark'] [style*='background-color: #fef2f2'],
+:root[data-theme='dark'] [style*='background-color: #fee2e2'] {
+  background: rgb(239 139 126 / 14%) !important;
+  border-color: rgb(239 139 126 / 38%) !important;
+}
+
+:root[data-theme='dark'] [style*='background: rgb(220, 252, 231)'],
+:root[data-theme='dark'] [style*='background: rgb(236, 253, 245)'],
+:root[data-theme='dark'] [style*='background: #dcfce7'],
+:root[data-theme='dark'] [style*='background: #ecfdf5'],
+:root[data-theme='dark'] [style*='background-color: rgb(220, 252, 231)'],
+:root[data-theme='dark'] [style*='background-color: rgb(236, 253, 245)'],
+:root[data-theme='dark'] [style*='background-color: #dcfce7'],
+:root[data-theme='dark'] [style*='background-color: #ecfdf5'] {
+  background: var(--green-soft) !important;
+  border-color: var(--green-border) !important;
+}
+
+:root[data-theme='dark'] [style*='background: rgb(255, 243, 224)'],
+:root[data-theme='dark'] [style*='background: rgb(254, 243, 199)'],
+:root[data-theme='dark'] [style*='background: #fff3e0'],
+:root[data-theme='dark'] [style*='background: #fef3c7'],
+:root[data-theme='dark'] [style*='background-color: rgb(255, 243, 224)'],
+:root[data-theme='dark'] [style*='background-color: rgb(254, 243, 199)'],
+:root[data-theme='dark'] [style*='background-color: #fff3e0'],
+:root[data-theme='dark'] [style*='background-color: #fef3c7'] {
+  background: rgb(240 199 107 / 14%) !important;
+  border-color: rgb(240 199 107 / 38%) !important;
+}
+
 :root[data-theme='dark'] [style*='color: rgb(15, 23, 42)'],
 :root[data-theme='dark'] [style*='color: #0f172a'],
 :root[data-theme='dark'] [style*='color: rgb(27, 42, 29)'],
 :root[data-theme='dark'] [style*='color: #1b2a1d'],
 :root[data-theme='dark'] [style*='color: rgb(51, 65, 85)'],
-:root[data-theme='dark'] [style*='color: #334155'] {
+:root[data-theme='dark'] [style*='color: #334155'],
+:root[data-theme='dark'] [style*='color: #111827'],
+:root[data-theme='dark'] [style*='color: #1f2937'],
+:root[data-theme='dark'] [style*='color: #374151'],
+:root[data-theme='dark'] [style*='color: #4b5563'],
+:root[data-theme='dark'] [style*='color: rgb(17, 24, 39)'],
+:root[data-theme='dark'] [style*='color: rgb(31, 41, 55)'],
+:root[data-theme='dark'] [style*='color: rgb(55, 65, 81)'] {
   color: var(--ink) !important;
 }
 
 :root[data-theme='dark'] [style*='color: rgb(71, 85, 105)'],
 :root[data-theme='dark'] [style*='color: #475569'],
 :root[data-theme='dark'] [style*='color: rgb(100, 116, 139)'],
-:root[data-theme='dark'] [style*='color: #64748b'] {
+:root[data-theme='dark'] [style*='color: #64748b'],
+:root[data-theme='dark'] [style*='color: #6b7280'],
+:root[data-theme='dark'] [style*='color: #94a3b8'],
+:root[data-theme='dark'] [style*='color: rgb(107, 114, 128)'],
+:root[data-theme='dark'] [style*='color: rgb(148, 163, 184)'] {
   color: var(--muted) !important;
+}
+
+:root[data-theme='dark'] [style*='color: #b91c1c'],
+:root[data-theme='dark'] [style*='color: rgb(185, 28, 28)'],
+:root[data-theme='dark'] [style*='color: #dc2626'] {
+  color: var(--red) !important;
+}
+
+:root[data-theme='dark'] [style*='color: #166534'],
+:root[data-theme='dark'] [style*='color: #065f46'],
+:root[data-theme='dark'] [style*='color: rgb(22, 101, 52)'] {
+  color: var(--green-deep) !important;
+}
+
+:root[data-theme='dark'] [style*='color: #b26a00'],
+:root[data-theme='dark'] [style*='color: #92400e'] {
+  color: var(--warning) !important;
+}
+
+:root[data-theme='dark'] :focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 70%, white);
+  outline-offset: 2px;
 }
 
 html {
